@@ -68,7 +68,7 @@ func TestIntegrationDetailQueryCountAndEpochGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		_, _ = db.Exec("UPDATE business_environment SET data_epoch=?,status='ready',restore_operation_id=NULL WHERE singleton=1", read.Epoch)
+		_, _ = db.Exec("UPDATE business_runtime_state SET data_epoch=?,status='ready',restore_operation_id=NULL WHERE singleton=1", read.Epoch)
 		_, _ = db.Exec("DELETE FROM business_async_budget WHERE data_epoch=?", restoredEpoch)
 	}()
 	if _, err := repo.FindBody(ctx, key); !errors.Is(err, post.ErrReadContextChanged) {
@@ -80,7 +80,7 @@ func TestIntegrationDetailQueryCountAndEpochGuard(t *testing.T) {
 	if _, err := repo.FindBody(ctx, key); !errors.Is(err, post.ErrReadContextChanged) {
 		t.Fatalf("restored epoch accepted old body: %v", err)
 	}
-	if _, err := db.Exec("UPDATE business_environment SET data_epoch=?,status='ready',restore_operation_id=NULL WHERE singleton=1", read.Epoch); err != nil {
+	if _, err := db.Exec("UPDATE business_runtime_state SET data_epoch=?,status='ready',restore_operation_id=NULL WHERE singleton=1", read.Epoch); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec("DELETE FROM posts WHERE id=?", id); err != nil {

@@ -28,9 +28,9 @@ func TestIntegrationReindexPagesMergeCurrentEpochTombstones(t *testing.T) {
 	// 临时表仅对当前连接可见，不修改业务事实或其他测试的 epoch。
 	for _, statement := range []string{
 		`CREATE TEMPORARY TABLE posts (id BIGINT UNSIGNED PRIMARY KEY,title VARCHAR(80),content TEXT,created_at DATETIME(6),updated_at DATETIME(6),edited_at DATETIME(6),content_revision BIGINT UNSIGNED)`,
-		`CREATE TEMPORARY TABLE business_environment (singleton INT PRIMARY KEY,data_epoch VARCHAR(36))`,
+		`CREATE TEMPORARY TABLE business_runtime_state (singleton INT PRIMARY KEY,data_epoch VARCHAR(36))`,
 		`CREATE TEMPORARY TABLE post_search_tombstones (data_epoch VARCHAR(36),post_id BIGINT UNSIGNED,deleted_at DATETIME(6),content_revision BIGINT UNSIGNED,PRIMARY KEY(data_epoch,post_id))`,
-		`INSERT INTO business_environment VALUES(1,'current')`,
+		`INSERT INTO business_runtime_state VALUES(1,'current')`,
 	} {
 		if _, err := connection.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)

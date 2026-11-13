@@ -71,7 +71,7 @@ func (store *ReindexStore) HighWatermark(ctx context.Context) (uint64, error) {
 	if err := store.queryer().QueryRowContext(ctx, `SELECT GREATEST(
  COALESCE((SELECT MAX(id) FROM posts), 0),
  COALESCE((SELECT MAX(t.post_id) FROM post_search_tombstones t
-  JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch), 0)
+  JOIN business_runtime_state e ON e.singleton=1 AND e.data_epoch=t.data_epoch), 0)
 )`).Scan(&maximum); err != nil {
 		return 0, fmt.Errorf("read post high watermark: %w", err)
 	}
@@ -96,7 +96,7 @@ SELECT id, title, content, created_at, updated_at, edited_at, content_revision, 
   FROM posts WHERE id > ? AND id <= ? ORDER BY id ASC LIMIT ?)
  UNION ALL
  (SELECT t.post_id, '', '', t.deleted_at, t.deleted_at, NULL, t.content_revision, TRUE
-  FROM post_search_tombstones t JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch
+  FROM post_search_tombstones t JOIN business_runtime_state e ON e.singleton=1 AND e.data_epoch=t.data_epoch
   WHERE t.post_id > ? AND t.post_id <= ? ORDER BY t.post_id ASC LIMIT ?)
 ) AS facts ORDER BY id ASC LIMIT ?`, after, maximum, limit, after, maximum, limit, limit)
 	if err != nil {

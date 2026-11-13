@@ -142,7 +142,7 @@ func (repository *Repository) InsertWithMetadata(ctx context.Context, executor E
 		}
 		var epoch, status, mode string
 		if err := reader.QueryRowContext(ctx, `
-			SELECT data_epoch, status, mode FROM business_environment
+			SELECT data_epoch, status, mode FROM business_runtime_state
 			WHERE singleton=1 FOR SHARE`).Scan(&epoch, &status, &mode); err != nil {
 			return 0, fmt.Errorf("read business event activation: %w", err)
 		}
@@ -164,7 +164,7 @@ func (repository *Repository) InsertWithMetadata(ctx context.Context, executor E
 		}
 		var epoch, status, mode string
 		if err := reader.QueryRowContext(ctx, `
-			SELECT data_epoch, status, mode FROM business_environment
+			SELECT data_epoch, status, mode FROM business_runtime_state
 			WHERE singleton=1 FOR SHARE`).Scan(&epoch, &status, &mode); err != nil {
 			return 0, fmt.Errorf("read business event activation: %w", err)
 		}
@@ -396,7 +396,7 @@ func (repository *Repository) CleanupPublished(ctx context.Context, publishedBef
 		FROM business_outbox AS o
 		WHERE o.id IN (`+strings.TrimRight(strings.Repeat("?,", len(candidateIDs)), ",")+`) AND o.status = 'published' AND o.published_at < ?
 		  AND NOT EXISTS (
-			SELECT 1 FROM business_event_requirements AS r
+			SELECT 1 FROM event_consumer_obligations AS r
 			WHERE r.event_id = o.event_id
 			  AND (r.closed_at IS NULL OR r.retain_until IS NULL OR r.retain_until > ?)
 		  )

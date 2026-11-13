@@ -39,7 +39,7 @@ func TestValidateDoesNotRequireDatabase(t *testing.T) {
 	if err := run([]string{"validate"}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"binary_target":21`) {
+	if !strings.Contains(output.String(), `"binary_target":22`) {
 		t.Fatal(output.String())
 	}
 }

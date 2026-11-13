@@ -470,7 +470,7 @@ func cleanupReadCostFixture(t *testing.T, database *sql.DB, authorID, viewerID, 
 
 func readCostEpoch(ctx context.Context, database *sql.DB) (string, error) {
 	var epoch string
-	err := database.QueryRowContext(ctx, `SELECT data_epoch FROM business_environment WHERE singleton=1`).Scan(&epoch)
+	err := database.QueryRowContext(ctx, `SELECT data_epoch FROM business_runtime_state WHERE singleton=1`).Scan(&epoch)
 	return epoch, err
 }
 

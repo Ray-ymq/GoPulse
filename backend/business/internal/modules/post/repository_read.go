@@ -43,7 +43,7 @@ func (repository *MySQLRepository) ReadContext(ctx context.Context, postID uint6
 	var authorID, revision sql.NullInt64
 	err = repository.database.QueryRowContext(ctx, `
 SELECT e.data_epoch, e.status, p.author_id, p.content_revision
-FROM business_environment AS e
+FROM business_runtime_state AS e
 LEFT JOIN posts AS p ON p.id=?
 WHERE e.singleton=1`, postID).Scan(&epoch, &status, &authorID, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -79,7 +79,7 @@ func (repository *MySQLRepository) FindBody(ctx context.Context, key BodyKey) (b
 	err = repository.database.QueryRowContext(ctx, `
 SELECT e.data_epoch, e.status, p.id, p.author_id, p.title, p.content,
        p.created_at, p.updated_at, p.edited_at, p.content_revision
-FROM business_environment AS e
+FROM business_runtime_state AS e
 LEFT JOIN posts AS p ON p.id=? AND p.content_revision=?
 WHERE e.singleton=1`, key.PostID, key.ContentRevision).Scan(
 		&epoch, &status, &id, &author, &title, &content, &created, &updated, &edited, &revision,
@@ -269,7 +269,7 @@ func (repository *MySQLRepository) FindViewerProjection(ctx context.Context, exp
  EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.user_id=?),
  EXISTS(SELECT 1 FROM user_follows f WHERE f.followed_id=p.author_id AND f.follower_id=?),
  EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id=p.id AND b.user_id=?)
- FROM business_environment e JOIN posts p ON p.id=? JOIN users u ON u.id=p.author_id WHERE e.singleton=1`,
+ FROM business_runtime_state e JOIN posts p ON p.id=? JOIN users u ON u.id=p.author_id WHERE e.singleton=1`,
 		viewer, viewer, viewer, expected.PostID).Scan(&epoch, &status, &author, &revision, &projection.Author.ID, &projection.Author.Username, &projection.Author.DisplayName, &projection.CommentCount, &projection.LikeCount, &projection.Liked, &projection.Following, &projection.Bookmarked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ViewerProjection{}, ErrNotFound

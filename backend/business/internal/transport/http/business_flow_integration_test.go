@@ -298,8 +298,8 @@ func logBusinessFlowDiagnostics(t *testing.T, database *sql.DB, ownerID, postID 
 		SELECT o.id, o.event_id, o.event_type, o.schema_version, o.status, o.attempt_count, COALESCE(o.last_error, ''),
 		       COALESCE(r.consumer, ''), IF(r.closed_at IS NULL, 0, 1), COALESCE(a.result, '')
 		FROM business_outbox AS o
-		LEFT JOIN business_event_requirements AS r ON r.data_epoch=? AND r.event_id=o.event_id
-		LEFT JOIN business_application_results AS a ON a.data_epoch=r.data_epoch AND a.event_id=r.event_id AND a.consumer=r.consumer AND a.routing_contract_revision=r.routing_contract_revision
+		LEFT JOIN event_consumer_obligations AS r ON r.data_epoch=? AND r.event_id=o.event_id
+		LEFT JOIN event_consumer_results AS a ON a.data_epoch=r.data_epoch AND a.event_id=r.event_id AND a.consumer=r.consumer AND a.routing_contract_revision=r.routing_contract_revision
 		WHERE JSON_UNQUOTE(JSON_EXTRACT(o.payload, '$.actor_id'))=? OR JSON_UNQUOTE(JSON_EXTRACT(o.payload, '$.post_id'))=?
 		ORDER BY o.id`, currentBusinessFlowEpoch(t, database), ownerID, postID)
 	if err != nil {
@@ -348,7 +348,7 @@ func logBusinessFlowDiagnostics(t *testing.T, database *sql.DB, ownerID, postID 
 func currentBusinessFlowEpoch(t *testing.T, database *sql.DB) string {
 	t.Helper()
 	var epoch string
-	if err := database.QueryRow(`SELECT data_epoch FROM business_environment WHERE singleton=1`).Scan(&epoch); err != nil {
+	if err := database.QueryRow(`SELECT data_epoch FROM business_runtime_state WHERE singleton=1`).Scan(&epoch); err != nil {
 		t.Logf("business flow diagnostics epoch query error=%v", err)
 	}
 	return epoch
@@ -403,8 +403,8 @@ func cleanupBusinessFlowData(t *testing.T, cfg config.Config, epoch string, base
 		query string
 		args  []any
 	}{
-		{query: `DELETE FROM business_application_results WHERE data_epoch=? AND event_id IN (SELECT event_id FROM business_commands WHERE data_epoch=? AND user_id IN (?, ?))`, args: []any{epoch, epoch, ownerID, actorID}},
-		{query: `DELETE FROM business_event_requirements WHERE data_epoch=? AND event_id IN (SELECT event_id FROM business_commands WHERE data_epoch=? AND user_id IN (?, ?))`, args: []any{epoch, epoch, ownerID, actorID}},
+		{query: `DELETE FROM event_consumer_results WHERE data_epoch=? AND event_id IN (SELECT event_id FROM business_commands WHERE data_epoch=? AND user_id IN (?, ?))`, args: []any{epoch, epoch, ownerID, actorID}},
+		{query: `DELETE FROM event_consumer_obligations WHERE data_epoch=? AND event_id IN (SELECT event_id FROM business_commands WHERE data_epoch=? AND user_id IN (?, ?))`, args: []any{epoch, epoch, ownerID, actorID}},
 		{query: `DELETE FROM business_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload, '$.actor_id')) IN (?, ?)`, args: []any{ownerID, actorID}},
 		{query: `DELETE FROM business_commands WHERE data_epoch=? AND user_id IN (?, ?)`, args: []any{epoch, ownerID, actorID}},
 	} {

@@ -18,11 +18,11 @@ func (repository *Repository) CleanupExpired(ctx context.Context, batch int) (in
 	}
 	defer func() { _ = tx.Rollback() }()
 	now := repository.now()
-	rows, err := tx.QueryContext(ctx, `SELECT r.event_id FROM business_event_requirements r
+	rows, err := tx.QueryContext(ctx, `SELECT r.event_id FROM event_consumer_obligations r
  WHERE r.retention_released=TRUE AND r.closed_at IS NOT NULL AND r.retain_until<=?
  AND NOT EXISTS(SELECT 1 FROM business_outbox o WHERE o.event_id=r.event_id)
  AND NOT EXISTS(SELECT 1 FROM business_commands c WHERE c.event_id=r.event_id AND (c.retained_until IS NULL OR c.retained_until>?))
- AND NOT EXISTS(SELECT 1 FROM business_event_requirements pending WHERE pending.event_id=r.event_id AND (pending.closed_at IS NULL OR pending.retain_until IS NULL OR pending.retain_until>? OR pending.retention_released=FALSE))
+ AND NOT EXISTS(SELECT 1 FROM event_consumer_obligations pending WHERE pending.event_id=r.event_id AND (pending.closed_at IS NULL OR pending.retain_until IS NULL OR pending.retain_until>? OR pending.retention_released=FALSE))
  ORDER BY r.retain_until,r.event_id LIMIT ? FOR UPDATE SKIP LOCKED`, now, now, now, batch)
 	if err != nil {
 		return 0, err
@@ -43,7 +43,7 @@ func (repository *Repository) CleanupExpired(ctx context.Context, batch int) (in
 	}
 	if len(ids) > 0 {
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
-		for _, table := range []string{"business_application_results", "business_event_failures", "business_event_requirements", "business_commands"} {
+		for _, table := range []string{"event_consumer_results", "business_event_failures", "event_consumer_obligations", "business_commands"} {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE event_id IN ("+placeholders+")", ids...); err != nil {
 				return 0, err
 			}

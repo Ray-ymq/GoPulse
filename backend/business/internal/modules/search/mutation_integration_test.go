@@ -45,7 +45,7 @@ func TestIntegrationV2CreateEditDeleteSearchAndDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		for _, table := range []string{"business_application_results", "business_event_failures", "business_event_requirements"} {
+		for _, table := range []string{"event_consumer_results", "business_event_failures", "event_consumer_obligations"} {
 			_, _ = db.Exec("DELETE FROM "+table+" WHERE event_id IN(SELECT event_id FROM business_outbox WHERE JSON_EXTRACT(payload,'$.actor_id')=?)", actor.ID)
 		}
 		_, _ = db.Exec("DELETE FROM business_commands WHERE user_id=?", actor.ID)
@@ -53,7 +53,7 @@ func TestIntegrationV2CreateEditDeleteSearchAndDuplicate(t *testing.T) {
 		_, _ = db.Exec("DELETE FROM posts WHERE author_id=?", actor.ID)
 		_, _ = db.Exec("DELETE FROM users WHERE id=?", actor.ID)
 		_, _ = db.Exec("UPDATE business_async_budget SET open_requirements=?,retained_groups=?,retained_bytes=? WHERE data_epoch=?", baseline.OpenRequirements, baseline.RetainedGroups, baseline.RetainedBytes, environment.DataEpoch)
-		_, _ = db.Exec("UPDATE business_environment SET mode=?,v1_compatibility_enabled=? WHERE singleton=1", environment.Mode, environment.V1Compatibility)
+		_, _ = db.Exec("UPDATE business_runtime_state SET mode=?,v1_compatibility_enabled=? WHERE singleton=1", environment.Mode, environment.V1Compatibility)
 	}()
 	client, err := platform.NewElasticsearch(cfg.Elasticsearch)
 	if err != nil {

@@ -77,8 +77,8 @@ func TestIntegrationConcurrentRequirementBudgetsAndDuplicateCompletion(t *testin
 			}
 			defer func() {
 				for _, requirement := range requirements {
-					_, _ = db.Exec("DELETE FROM business_application_results WHERE data_epoch=? AND event_id=?", environment.DataEpoch, requirement.EventID)
-					_, _ = db.Exec("DELETE FROM business_event_requirements WHERE data_epoch=? AND event_id=?", environment.DataEpoch, requirement.EventID)
+					_, _ = db.Exec("DELETE FROM event_consumer_results WHERE data_epoch=? AND event_id=?", environment.DataEpoch, requirement.EventID)
+					_, _ = db.Exec("DELETE FROM event_consumer_obligations WHERE data_epoch=? AND event_id=?", environment.DataEpoch, requirement.EventID)
 				}
 				_, _ = db.Exec("UPDATE business_async_budget SET open_requirements=?,retained_groups=?,retained_bytes=? WHERE data_epoch=?", baseline.OpenRequirements, baseline.RetainedGroups, baseline.RetainedBytes, environment.DataEpoch)
 			}()

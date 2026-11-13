@@ -38,7 +38,7 @@ func TestIntegrationMutationSearchRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	var baselineRequirements int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM business_event_requirements WHERE data_epoch=?", environment.DataEpoch).Scan(&baselineRequirements); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM event_consumer_obligations WHERE data_epoch=?", environment.DataEpoch).Scan(&baselineRequirements); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.ActivateV2(ctx, "mutation-test"); err != nil {
@@ -49,7 +49,7 @@ func TestIntegrationMutationSearchRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		for _, table := range []string{"business_application_results", "business_event_failures", "business_event_requirements"} {
+		for _, table := range []string{"event_consumer_results", "business_event_failures", "event_consumer_obligations"} {
 			_, _ = db.Exec("DELETE FROM "+table+" WHERE event_id IN (SELECT event_id FROM business_outbox WHERE JSON_EXTRACT(payload,'$.actor_id')=?)", actor.ID)
 		}
 		_, _ = db.Exec("DELETE FROM business_outbox WHERE JSON_EXTRACT(payload,'$.actor_id')=?", actor.ID)
@@ -57,7 +57,7 @@ func TestIntegrationMutationSearchRequirements(t *testing.T) {
 		_, _ = db.Exec("DELETE FROM posts WHERE author_id=?", actor.ID)
 		_, _ = db.Exec("DELETE FROM users WHERE id=?", actor.ID)
 		_, _ = db.Exec("UPDATE business_async_budget SET open_requirements=?, retained_groups=?, retained_bytes=?, parked_messages=?, parked_bytes=? WHERE data_epoch=?", baseline.OpenRequirements, baseline.RetainedGroups, baseline.RetainedBytes, baseline.ParkedMessages, baseline.ParkedBytes, environment.DataEpoch)
-		_, _ = db.Exec("UPDATE business_environment SET mode=?,v1_compatibility_enabled=? WHERE singleton=1", environment.Mode, environment.V1Compatibility)
+		_, _ = db.Exec("UPDATE business_runtime_state SET mode=?,v1_compatibility_enabled=? WHERE singleton=1", environment.Mode, environment.V1Compatibility)
 	}()
 	events, _ := outbox.NewRepository(db, outbox.Options{EnableV2: true, RetentionAccounting: state})
 	repo := NewMySQLRepository(db, RepositoryOptions{Outbox: events, BusinessState: state})
@@ -97,7 +97,7 @@ func TestIntegrationMutationSearchRequirements(t *testing.T) {
 				want int
 			}{
 				{"SELECT COUNT(*) FROM business_outbox WHERE JSON_EXTRACT(payload,'$.post_id')=?", 1},
-				{"SELECT COUNT(*) FROM business_event_requirements WHERE event_id IN (SELECT event_id FROM business_outbox WHERE JSON_EXTRACT(payload,'$.post_id')=?)", 1},
+				{"SELECT COUNT(*) FROM event_consumer_obligations WHERE event_id IN (SELECT event_id FROM business_outbox WHERE JSON_EXTRACT(payload,'$.post_id')=?)", 1},
 				{"SELECT COUNT(*) FROM post_search_tombstones WHERE post_id=?", 0},
 			} {
 				var count int
@@ -106,7 +106,7 @@ func TestIntegrationMutationSearchRequirements(t *testing.T) {
 				}
 			}
 			var requirements int
-			if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM business_event_requirements WHERE data_epoch=?", environment.DataEpoch).Scan(&requirements); err != nil {
+			if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM event_consumer_obligations WHERE data_epoch=?", environment.DataEpoch).Scan(&requirements); err != nil {
 				t.Fatal(err)
 			}
 			budget, err := state.Budget(ctx, environment.DataEpoch)

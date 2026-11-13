@@ -40,8 +40,8 @@ func TestIntegrationBusinessIdentityEvidenceAndParking(t *testing.T) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
 		if cleanupEventID != "" {
-			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_application_results WHERE data_epoch=? AND event_id=?`, environment.DataEpoch, cleanupEventID)
-			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_event_requirements WHERE data_epoch=? AND event_id=?`, environment.DataEpoch, cleanupEventID)
+			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM event_consumer_results WHERE data_epoch=? AND event_id=?`, environment.DataEpoch, cleanupEventID)
+			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM event_consumer_obligations WHERE data_epoch=? AND event_id=?`, environment.DataEpoch, cleanupEventID)
 			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_event_failures WHERE data_epoch=? AND event_id=?`, environment.DataEpoch, cleanupEventID)
 			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_message_parking WHERE event_id=?`, cleanupEventID)
 		}

@@ -42,16 +42,16 @@ func TestIntegrationCleanupHonorsEvidenceAndCommandRetention(t *testing.T) {
 		t.Fatalf("MarkPublished() error = %v", err)
 	}
 	var epoch string
-	if err := database.QueryRowContext(ctx, `SELECT data_epoch FROM business_environment WHERE singleton=1`).Scan(&epoch); err != nil {
+	if err := database.QueryRowContext(ctx, `SELECT data_epoch FROM business_runtime_state WHERE singleton=1`).Scan(&epoch); err != nil {
 		t.Fatalf("read business epoch: %v", err)
 	}
 	old := time.Now().UTC().Add(-48 * time.Hour)
-	if _, err := database.ExecContext(ctx, `INSERT INTO business_event_requirements (data_epoch,event_id,consumer,routing_contract_revision,applicable_object_version,payload_bytes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`, epoch, event.EventID, "search", "post-created-search/1", 1, 1, old, old); err != nil {
+	if _, err := database.ExecContext(ctx, `INSERT INTO event_consumer_obligations (data_epoch,event_id,consumer,routing_contract_revision,applicable_object_version,payload_bytes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`, epoch, event.EventID, "search", "post-created-search/1", 1, 1, old, old); err != nil {
 		t.Fatalf("insert open requirement: %v", err)
 	}
 	cleanup := func() {
 		_, _ = database.ExecContext(context.Background(), `DELETE FROM business_commands WHERE event_id=?`, event.EventID)
-		_, _ = database.ExecContext(context.Background(), `DELETE FROM business_event_requirements WHERE event_id=?`, event.EventID)
+		_, _ = database.ExecContext(context.Background(), `DELETE FROM event_consumer_obligations WHERE event_id=?`, event.EventID)
 		_, _ = database.ExecContext(context.Background(), `DELETE FROM business_outbox WHERE event_id=?`, event.EventID)
 	}
 	t.Cleanup(cleanup)
@@ -59,7 +59,7 @@ func TestIntegrationCleanupHonorsEvidenceAndCommandRetention(t *testing.T) {
 		t.Fatalf("open requirement cleanup error=%v", err)
 	}
 	assertIntegrationEventCount(t, ctx, database, event.EventID, 1)
-	if _, err := database.ExecContext(ctx, `UPDATE business_event_requirements SET closed_at=?, retain_until=?, updated_at=? WHERE event_id=?`, old, old, old, event.EventID); err != nil {
+	if _, err := database.ExecContext(ctx, `UPDATE event_consumer_obligations SET closed_at=?, retain_until=?, updated_at=? WHERE event_id=?`, old, old, old, event.EventID); err != nil {
 		t.Fatalf("close requirement: %v", err)
 	}
 	commandID := "123e4567-e89b-12d3-a456-426614174003"

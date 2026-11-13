@@ -32,14 +32,14 @@ func (repository *Repository) Ensure(ctx context.Context) (Environment, error) {
 	}
 	now := repository.now()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO business_environment
+		INSERT INTO business_runtime_state
 			(singleton, data_epoch, status, mode, v1_compatibility_enabled, activation_revision, created_at, updated_at)
 		VALUES (1, ?, 'ready', 'legacy_v1', TRUE, 'phase-24-01', ?, ?)
 		ON DUPLICATE KEY UPDATE singleton = VALUES(singleton)`, epoch, now, now); err != nil {
 		return Environment{}, errors.New("initialize business environment")
 	}
 	var current string
-	if err := tx.QueryRowContext(ctx, `SELECT data_epoch FROM business_environment WHERE singleton = 1 FOR UPDATE`).Scan(&current); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT data_epoch FROM business_runtime_state WHERE singleton = 1 FOR UPDATE`).Scan(&current); err != nil {
 		return Environment{}, errors.New("read initialized business environment")
 	}
 	if err := ensureBudgetTx(ctx, tx, current); err != nil {
@@ -61,7 +61,7 @@ func (repository *Repository) Current(ctx context.Context) (Environment, error) 
 	return scanEnvironment(repository.database.QueryRowContext(ctx, `
 		SELECT data_epoch, status, mode, v1_compatibility_enabled, activation_revision,
 		       COALESCE(restore_operation_id, ''), created_at, updated_at
-		FROM business_environment WHERE singleton = 1`))
+		FROM business_runtime_state WHERE singleton = 1`))
 }
 
 func (repository *Repository) CurrentEpoch(ctx context.Context) (string, error) {
@@ -98,7 +98,7 @@ func (repository *Repository) SetMode(ctx context.Context, mode string, revision
 		return errors.New("begin business mode update")
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `UPDATE business_environment SET mode=?, activation_revision=?, v1_compatibility_enabled=?, updated_at=? WHERE singleton=1`, mode, revision, v1Compatibility, repository.now()); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE business_runtime_state SET mode=?, activation_revision=?, v1_compatibility_enabled=?, updated_at=? WHERE singleton=1`, mode, revision, v1Compatibility, repository.now()); err != nil {
 		return errors.New("update business mode")
 	}
 	if err := tx.Commit(); err != nil {
@@ -122,7 +122,7 @@ func (repository *Repository) ActivateV2(ctx context.Context, revision string) e
 	environment, err := scanEnvironment(tx.QueryRowContext(ctx, `
 		SELECT data_epoch, status, mode, v1_compatibility_enabled, activation_revision,
 		       COALESCE(restore_operation_id, ''), created_at, updated_at
-		FROM business_environment WHERE singleton=1 FOR UPDATE`))
+		FROM business_runtime_state WHERE singleton=1 FOR UPDATE`))
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (repository *Repository) ActivateV2(ctx context.Context, revision string) e
 		return ErrActivationNotDrained
 	}
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE business_environment
+		UPDATE business_runtime_state
 		SET mode=?, v1_compatibility_enabled=FALSE, activation_revision=?, updated_at=?
 		WHERE singleton=1`, ModeV2, revision, repository.now()); err != nil {
 		return errors.New("activate business v2")
@@ -175,14 +175,14 @@ func (repository *Repository) BeginRestore(ctx context.Context, operationID, exp
 	defer func() { _ = tx.Rollback() }()
 	var current string
 	var status string
-	if err := tx.QueryRowContext(ctx, `SELECT data_epoch, status FROM business_environment WHERE singleton=1 FOR UPDATE`).Scan(&current, &status); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT data_epoch, status FROM business_runtime_state WHERE singleton=1 FOR UPDATE`).Scan(&current, &status); err != nil {
 		return errors.New("read business restore environment")
 	}
 	if current != expectedOldEpoch || status != StatusReady {
 		return ErrEpochMismatch
 	}
 	now := repository.now()
-	if _, err := tx.ExecContext(ctx, `UPDATE business_environment SET data_epoch=?, status='restoring', restore_operation_id=?, updated_at=? WHERE singleton=1`, newEpoch, operationID, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE business_runtime_state SET data_epoch=?, status='restoring', restore_operation_id=?, updated_at=? WHERE singleton=1`, newEpoch, operationID, now); err != nil {
 		return errors.New("set business environment restoring")
 	}
 	if err := ensureBudgetTx(ctx, tx, newEpoch); err != nil {
@@ -205,7 +205,7 @@ func (repository *Repository) MarkReady(ctx context.Context, operationID, epoch 
 		return err
 	}
 	result, err := repository.database.ExecContext(ctx, `
-		UPDATE business_environment SET status='ready', restore_operation_id=NULL, updated_at=?
+		UPDATE business_runtime_state SET status='ready', restore_operation_id=NULL, updated_at=?
 		WHERE singleton=1 AND status='restoring' AND data_epoch=? AND restore_operation_id=?`, repository.now(), epoch, operationID)
 	if err != nil {
 		return errors.New("mark business environment ready")

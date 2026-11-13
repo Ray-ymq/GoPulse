@@ -41,7 +41,7 @@ func (repository *Repository) RegisterRequirementTx(ctx context.Context, executo
 		requirement.PayloadBytes = 1
 	}
 	result, err := executor.ExecContext(ctx, `
-		INSERT IGNORE INTO business_event_requirements
+		INSERT IGNORE INTO event_consumer_obligations
 			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, retention_reserved, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)`, requirement.DataEpoch, requirement.EventID, requirement.Consumer,
 		requirement.RoutingContractRevision, requirement.ApplicableObjectVersion, requirement.PayloadBytes, repository.now(), repository.now())
@@ -97,7 +97,7 @@ func (repository *Repository) HasRequirement(ctx context.Context, requirement Re
 		return false, err
 	}
 	var exists bool
-	if err := repository.database.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM business_event_requirements WHERE data_epoch=? AND event_id=? AND consumer=? AND routing_contract_revision=?)`, requirement.DataEpoch, requirement.EventID, requirement.Consumer, requirement.RoutingContractRevision).Scan(&exists); err != nil {
+	if err := repository.database.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM event_consumer_obligations WHERE data_epoch=? AND event_id=? AND consumer=? AND routing_contract_revision=?)`, requirement.DataEpoch, requirement.EventID, requirement.Consumer, requirement.RoutingContractRevision).Scan(&exists); err != nil {
 		return false, errors.New("check business event requirement")
 	}
 	return exists, nil
@@ -136,7 +136,7 @@ func (repository *Repository) RecordApplicationTx(ctx context.Context, executor 
 	var closedAt sql.NullTime
 	var retentionReserved bool
 	if err := executor.QueryRowContext(ctx, `
-		SELECT payload_bytes, closed_at, retention_reserved FROM business_event_requirements
+		SELECT payload_bytes, closed_at, retention_reserved FROM event_consumer_obligations
 		WHERE data_epoch=? AND event_id=? AND consumer=? AND routing_contract_revision=? FOR UPDATE`,
 		application.DataEpoch, application.EventID, application.Consumer, application.RoutingContractRevision).Scan(&payloadBytes, &closedAt, &retentionReserved); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -145,7 +145,7 @@ func (repository *Repository) RecordApplicationTx(ctx context.Context, executor 
 		return errors.New("lock business event requirement")
 	}
 	result, err := executor.ExecContext(ctx, `
-		INSERT IGNORE INTO business_application_results
+		INSERT IGNORE INTO event_consumer_results
 			(data_epoch, event_id, consumer, routing_contract_revision, projection_generation, result, actual_version, completed_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, application.DataEpoch, application.EventID, application.Consumer,
 		application.RoutingContractRevision, application.ProjectionGeneration, application.Result, application.ActualVersion, completedAt)
@@ -161,7 +161,7 @@ func (repository *Repository) RecordApplicationTx(ctx context.Context, executor 
 	}
 	retainUntil := completedAt.Add(RetentionPeriod)
 	if _, err := executor.ExecContext(ctx, `
-		UPDATE business_event_requirements SET closed_at=?, retain_until=?, retention_reserved=TRUE, updated_at=?
+		UPDATE event_consumer_obligations SET closed_at=?, retain_until=?, retention_reserved=TRUE, updated_at=?
 		WHERE data_epoch=? AND event_id=? AND consumer=? AND routing_contract_revision=? AND closed_at IS NULL`,
 		completedAt, retainUntil, completedAt, application.DataEpoch, application.EventID, application.Consumer, application.RoutingContractRevision); err != nil {
 		return errors.New("close business event requirement")
@@ -192,7 +192,7 @@ func (repository *Repository) FindApplication(ctx context.Context, application A
 		return false, err
 	}
 	var exists bool
-	if err := repository.database.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM business_application_results WHERE data_epoch=? AND event_id=? AND consumer=? AND routing_contract_revision=? AND projection_generation=?)`, application.DataEpoch, application.EventID, application.Consumer, application.RoutingContractRevision, application.ProjectionGeneration).Scan(&exists); err != nil {
+	if err := repository.database.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM event_consumer_results WHERE data_epoch=? AND event_id=? AND consumer=? AND routing_contract_revision=? AND projection_generation=?)`, application.DataEpoch, application.EventID, application.Consumer, application.RoutingContractRevision, application.ProjectionGeneration).Scan(&exists); err != nil {
 		return false, errors.New("check business application result")
 	}
 	return exists, nil
@@ -231,7 +231,7 @@ func (repository *Repository) ReleaseRetentionTx(ctx context.Context, executor E
 		args = append(args, id)
 	}
 	args = append(args, normalizeTime(now))
-	rows, err := executor.QueryContext(ctx, `SELECT data_epoch,payload_bytes FROM business_event_requirements WHERE event_id IN (`+placeholders+`) AND closed_at IS NOT NULL AND retain_until <= ? AND retention_released=FALSE ORDER BY data_epoch,event_id FOR UPDATE`, args...)
+	rows, err := executor.QueryContext(ctx, `SELECT data_epoch,payload_bytes FROM event_consumer_obligations WHERE event_id IN (`+placeholders+`) AND closed_at IS NOT NULL AND retain_until <= ? AND retention_released=FALSE ORDER BY data_epoch,event_id FOR UPDATE`, args...)
 	if err != nil {
 		return err
 	}
@@ -258,7 +258,7 @@ func (repository *Repository) ReleaseRetentionTx(ctx context.Context, executor E
 		return nil
 	}
 	updateArgs := append([]any{normalizeTime(now)}, args...)
-	if _, err := executor.ExecContext(ctx, `UPDATE business_event_requirements SET retention_released=TRUE,updated_at=? WHERE event_id IN (`+placeholders+`) AND closed_at IS NOT NULL AND retain_until <= ? AND retention_released=FALSE`, updateArgs...); err != nil {
+	if _, err := executor.ExecContext(ctx, `UPDATE event_consumer_obligations SET retention_released=TRUE,updated_at=? WHERE event_id IN (`+placeholders+`) AND closed_at IS NOT NULL AND retain_until <= ? AND retention_released=FALSE`, updateArgs...); err != nil {
 		return err
 	}
 	epochs := make([]string, 0, len(totals))

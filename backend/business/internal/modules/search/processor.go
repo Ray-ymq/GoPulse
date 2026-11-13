@@ -39,7 +39,7 @@ func (store *MySQLDocumentStore) FindDocument(ctx context.Context, postID uint64
  FROM posts WHERE id = ?
  UNION ALL
  SELECT t.post_id, '', '', t.deleted_at, t.deleted_at, NULL, t.content_revision, TRUE
- FROM post_search_tombstones t INNER JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch
+ FROM post_search_tombstones t INNER JOIN business_runtime_state e ON e.singleton=1 AND e.data_epoch=t.data_epoch
  WHERE t.post_id=?`, postID, postID).Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision, &document.Deleted)
 
 	if errors.Is(err, sql.ErrNoRows) {

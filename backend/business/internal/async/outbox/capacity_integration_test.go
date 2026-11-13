@@ -77,7 +77,7 @@ func TestIntegrationOutbox550kHistoryUsesIndexesAndBoundedCleanup(t *testing.T) 
 	defer cancel()
 	marker := fmt.Sprintf("history-%d", time.Now().UnixNano())
 	defer func() {
-		_, _ = db.Exec(`DELETE r FROM business_event_requirements r JOIN business_outbox o ON o.event_id=r.event_id WHERE o.last_error=?`, marker)
+		_, _ = db.Exec(`DELETE r FROM event_consumer_obligations r JOIN business_outbox o ON o.event_id=r.event_id WHERE o.last_error=?`, marker)
 		_, _ = db.Exec(`DELETE FROM business_outbox WHERE last_error=?`, marker)
 	}()
 	_, err = db.ExecContext(ctx, `INSERT INTO business_outbox (event_id,event_type,schema_version,payload,status,available_at,published_at,last_error,created_at,updated_at)
@@ -110,9 +110,9 @@ func TestIntegrationOutbox550kHistoryUsesIndexesAndBoundedCleanup(t *testing.T) 
 		t.Logf("550k history query uses %s", q.index)
 	}
 	// Protect the first entire candidate page; the next page must remain reachable.
-	_, err = db.ExecContext(ctx, `INSERT INTO business_event_requirements (data_epoch,event_id,consumer,routing_contract_revision,applicable_object_version,payload_bytes,created_at,updated_at)
+	_, err = db.ExecContext(ctx, `INSERT INTO event_consumer_obligations (data_epoch,event_id,consumer,routing_contract_revision,applicable_object_version,payload_bytes,created_at,updated_at)
  SELECT e.data_epoch,o.event_id,'search','post-created-search/1',1,1,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)
- FROM business_outbox o JOIN business_environment e ON e.singleton=1 WHERE o.last_error=? ORDER BY o.published_at,o.id LIMIT 500`, marker)
+ FROM business_outbox o JOIN business_runtime_state e ON e.singleton=1 WHERE o.last_error=? ORDER BY o.published_at,o.id LIMIT 500`, marker)
 	if err != nil {
 		t.Fatal(err)
 	}

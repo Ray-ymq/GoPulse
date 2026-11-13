@@ -36,7 +36,7 @@ func TestIntegrationRetentionExpiresOnceWithoutExtraPeriod(t *testing.T) {
 	event, _ := bus.NewV2PostUpdated(now, environment.DataEpoch, 1, 999, 2)
 	commandID, _ := bus.NewUUID()
 	defer func() {
-		for _, table := range []string{"business_outbox", "business_application_results", "business_event_failures", "business_event_requirements", "business_commands"} {
+		for _, table := range []string{"business_outbox", "event_consumer_results", "business_event_failures", "event_consumer_obligations", "business_commands"} {
 			db.Exec("DELETE FROM "+table+" WHERE event_id=?", event.EventID)
 		}
 		db.Exec("UPDATE business_async_budget SET open_requirements=?,retained_groups=?,retained_bytes=? WHERE data_epoch=?", baseline.OpenRequirements, baseline.RetainedGroups, baseline.RetainedBytes, environment.DataEpoch)
@@ -80,7 +80,7 @@ func TestIntegrationRetentionExpiresOnceWithoutExtraPeriod(t *testing.T) {
 	if err != nil || budget.OpenRequirements != baseline.OpenRequirements || budget.RetainedGroups != baseline.RetainedGroups || budget.RetainedBytes != baseline.RetainedBytes {
 		t.Fatalf("budget=%+v baseline=%+v err=%v", budget, baseline, err)
 	}
-	for _, table := range []string{"business_commands", "business_application_results", "business_event_requirements"} {
+	for _, table := range []string{"business_commands", "event_consumer_results", "event_consumer_obligations"} {
 		var count int
 		if err := db.QueryRow("SELECT COUNT(*) FROM "+table+" WHERE event_id=?", event.EventID).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("table=%s remaining=%d err=%v", table, count, err)

@@ -63,8 +63,8 @@ func TestIntegrationPostCommandConcurrentReplayConflictOwnershipAndDeletedResult
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()
-		_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_application_results WHERE data_epoch=? AND event_id IN (SELECT event_id FROM business_commands WHERE user_id IN (?, ?))`, environment.DataEpoch, first.ID, second.ID)
-		_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_event_requirements WHERE data_epoch=? AND event_id IN (SELECT event_id FROM business_commands WHERE user_id IN (?, ?))`, environment.DataEpoch, first.ID, second.ID)
+		_, _ = database.ExecContext(cleanupCtx, `DELETE FROM event_consumer_results WHERE data_epoch=? AND event_id IN (SELECT event_id FROM business_commands WHERE user_id IN (?, ?))`, environment.DataEpoch, first.ID, second.ID)
+		_, _ = database.ExecContext(cleanupCtx, `DELETE FROM event_consumer_obligations WHERE data_epoch=? AND event_id IN (SELECT event_id FROM business_commands WHERE user_id IN (?, ?))`, environment.DataEpoch, first.ID, second.ID)
 		_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload, '$.actor_id')) IN (?, ?)`, first.ID, second.ID)
 		_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_commands WHERE data_epoch=? AND user_id IN (?, ?)`, environment.DataEpoch, first.ID, second.ID)
 		_, _ = database.ExecContext(cleanupCtx, `DELETE FROM posts WHERE author_id IN (?, ?)`, first.ID, second.ID)
@@ -136,7 +136,7 @@ func TestIntegrationPostCommandConcurrentReplayConflictOwnershipAndDeletedResult
 		t.Fatal(err)
 	}
 	var reservedPayloadBytes int
-	if err := database.QueryRowContext(ctx, "SELECT payload_bytes FROM business_event_requirements WHERE data_epoch=? AND event_id=?", environment.DataEpoch, eventID).Scan(&reservedPayloadBytes); err != nil || reservedPayloadBytes != len(encoded) {
+	if err := database.QueryRowContext(ctx, "SELECT payload_bytes FROM event_consumer_obligations WHERE data_epoch=? AND event_id=?", environment.DataEpoch, eventID).Scan(&reservedPayloadBytes); err != nil || reservedPayloadBytes != len(encoded) {
 		t.Fatalf("需求载荷字节不一致: reserved=%d encoded=%d err=%v", reservedPayloadBytes, len(encoded), err)
 	}
 	charged, err := state.Budget(ctx, environment.DataEpoch)
@@ -204,7 +204,7 @@ func assertCommandCounts(t *testing.T, ctx context.Context, database *sql.DB, ep
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM business_outbox WHERE event_id=?`, eventID).Scan(&outboxRows); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM business_event_requirements WHERE data_epoch=? AND event_id=?`, epoch, eventID).Scan(&requirements); err != nil {
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_consumer_obligations WHERE data_epoch=? AND event_id=?`, epoch, eventID).Scan(&requirements); err != nil {
 		t.Fatal(err)
 	}
 	if commands != wantCommands || posts != wantPosts || outboxRows != wantOutbox || requirements != wantRequirements {

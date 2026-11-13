@@ -85,7 +85,7 @@ func TestIntegrationSearchReindexRestorePreparation(t *testing.T) {
 		if _, cleanupErr := database.ExecContext(cleanupCtx, `DELETE FROM users WHERE id=?`, authorID); cleanupErr != nil {
 			t.Errorf("cleanup restore user: %v", cleanupErr)
 		}
-		if _, cleanupErr := database.ExecContext(cleanupCtx, `UPDATE business_environment SET data_epoch=?, status='ready', restore_operation_id=NULL, updated_at=UTC_TIMESTAMP(6) WHERE singleton=1`, oldEpoch); cleanupErr != nil {
+		if _, cleanupErr := database.ExecContext(cleanupCtx, `UPDATE business_runtime_state SET data_epoch=?, status='ready', restore_operation_id=NULL, updated_at=UTC_TIMESTAMP(6) WHERE singleton=1`, oldEpoch); cleanupErr != nil {
 			t.Errorf("reset business environment after restore test: %v", cleanupErr)
 		}
 		if _, cleanupErr := database.ExecContext(cleanupCtx, `DELETE FROM business_async_budget WHERE data_epoch IN (?, ?)`, newEpoch, failedEpoch); cleanupErr != nil {

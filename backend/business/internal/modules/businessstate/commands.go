@@ -70,7 +70,7 @@ func (repository *Repository) LockCurrentTx(ctx context.Context, executor Execut
 	return scanEnvironment(executor.QueryRowContext(ctx, `
 		SELECT data_epoch, status, mode, v1_compatibility_enabled, activation_revision,
 		       COALESCE(restore_operation_id, ''), created_at, updated_at
-		FROM business_environment WHERE singleton = 1 FOR SHARE`))
+		FROM business_runtime_state WHERE singleton = 1 FOR SHARE`))
 }
 
 // ReadCommandContext returns the current ready epoch and the bounded retry
@@ -223,7 +223,7 @@ func (repository *Repository) ReservePostCreateTx(ctx context.Context, executor 
 		return errors.New("insert business command")
 	}
 	if _, err := executor.ExecContext(ctx, `
-		INSERT INTO business_event_requirements
+		INSERT INTO event_consumer_obligations
 			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, retention_reserved, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)`, reservation.Requirement.DataEpoch, reservation.Requirement.EventID,
 		reservation.Requirement.Consumer, reservation.Requirement.RoutingContractRevision, reservation.Requirement.ApplicableObjectVersion,

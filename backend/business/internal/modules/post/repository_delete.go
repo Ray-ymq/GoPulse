@@ -37,7 +37,7 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 	}
 	deletionEpoch := epoch
 	if deletionEpoch == "" {
-		if err := tx.QueryRowContext(ctx, "SELECT data_epoch FROM business_environment WHERE singleton=1 FOR SHARE").Scan(&deletionEpoch); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT data_epoch FROM business_runtime_state WHERE singleton=1 FOR SHARE").Scan(&deletionEpoch); err != nil {
 			return err
 		}
 	}
