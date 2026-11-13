@@ -5,6 +5,7 @@ import AuthView from './views/AuthView.vue'
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/admin/roles', name: 'admin-roles', component: () => import('./views/AdminRolesView.vue'), meta: { title: '角色管理', superAdmin: true } },
     { path: '/', name: 'discover', component: FeedView, meta: { title: '发现广场' } },
     { path: '/following', name: 'following', component: FeedView, meta: { title: '我的关注' } },
     { path: '/bookmarks', name: 'bookmarks', component: FeedView, meta: { title: '我的收藏' } },
@@ -23,6 +24,7 @@ export const router = createRouter({
 router.beforeEach(async to => {
   try { await ensureSession() } catch { if (!to.meta.public) return { name: 'login', query: { redirect: to.fullPath, unavailable: '1' } }; return }
   if (!to.meta.public && !user.value) return { name: 'login', query: { redirect: to.fullPath } }
+  if (to.meta.superAdmin && user.value?.role !== 'super_admin') return '/'
   if (user.value && ['login', 'register'].includes(String(to.name))) return '/'
 })
 router.afterEach(to => { document.title = `${String(to.meta.title || '生活有声')} · GoPulse` })

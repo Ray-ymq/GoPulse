@@ -2,6 +2,8 @@ export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public requestId?: string) { super(message) }
 }
 const messages: Record<string, string> = {
+  bootstrap_super_admin_protected: '初始超级管理员的权限不能撤销。',
+  management_setup_unavailable: '管理员初始化尚未完成或状态不可用，请联系系统维护者。',
   authentication_required: '登录状态已失效，请重新登录。', invalid_credentials: '用户名或密码不正确。',
   username_conflict: '这个用户名已被使用。', permission_denied: '当前账号没有执行此操作的权限。',
   post_not_found: '这篇帖子已被删除或不存在。', user_not_found: '这位用户不存在。',

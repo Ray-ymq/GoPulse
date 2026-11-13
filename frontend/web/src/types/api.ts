@@ -9,3 +9,6 @@ export interface Data<T> { data: T }
 export interface PostInput { title: string; content: string }
 export interface CommandResult { data: Post | null; meta?: { resource_state: 'available' | 'unavailable'; post_id: number; replayed: boolean } }
 export interface PendingPost { owner: number; key: string; epoch: string; input: PostInput }
+
+export interface ManagedUser extends User { is_bootstrap_super_admin: boolean }
+export interface RoleChange { user: ManagedUser; changed: boolean }

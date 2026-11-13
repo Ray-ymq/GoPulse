@@ -335,6 +335,103 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/admin/users/by-username/{username}:
+    get:
+      tags:
+      - Users
+      summary: 超级管理员按完整用户名查询账号角色
+      description: 每次请求从数据库检查操作者权限。必须先通过命令行完成初始超级管理员设置。
+      parameters:
+      - name: username
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[A-Za-z0-9_]{3,32}$'
+      responses:
+        '200':
+          description: 账号角色及初始超级管理员标记。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ManagedUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/admin/users/{userId}/role:
+    patch:
+      tags:
+      - Users
+      summary: 超级管理员设置账号角色
+      description: >-
+        在同一事务内重新检查操作者角色、修改目标角色并记录审计事件。
+        初始超级管理员不能降为普通用户，否则返回 409 bootstrap_super_admin_protected。
+        允许非初始管理员撤销自己的权限，后续管理请求将返回 403。
+        角色未变化时返回 changed=false，不新增变更审计记录。
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [user, super_admin]
+      responses:
+        '200':
+          description: 当前角色和是否发生变更。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [user, changed]
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/ManagedUser'
+                      changed:
+                        type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/users/me:
     get:
       tags:
@@ -1266,6 +1363,14 @@ components:
         type: string
         pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
   schemas:
+    ManagedUser:
+      allOf:
+      - $ref: '#/components/schemas/UserPublic'
+      - type: object
+        required: [is_bootstrap_super_admin]
+        properties:
+          is_bootstrap_super_admin:
+            type: boolean
     ErrorCode:
       type: string
       description: 稳定的错误标识，新增取值属于兼容变更。

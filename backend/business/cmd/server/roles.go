@@ -29,6 +29,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/ratelimit"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/resourcebudget"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http"
+	adminhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/admin"
 	authhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/auth"
 	bookmarkhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/bookmark"
 	commenthttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/comment"
@@ -313,6 +314,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
 		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret).WithEpochProvider(state)
 
+		routes.AdminUsers = adminhttp.NewHandler(users)
 		routes.Auth = authHandler
 		routes.Users = userhttp.NewHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService, users)
 		routes.Posts = postHandler

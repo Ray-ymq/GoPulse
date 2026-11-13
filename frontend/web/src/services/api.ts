@@ -1,10 +1,12 @@
 import { request } from './http'
-import type { Comment, Data, Notification, Page, Post, PostInput, Profile, User } from '../types/api'
+import type { Comment, Data, ManagedUser, RoleChange, Notification, Page, Post, PostInput, Profile, User } from '../types/api'
 export function pageQuery(cursor?: string | null, extra: Record<string, string> = {}) {
   const params = new URLSearchParams({ limit: '20', ...extra }); if (cursor) params.set('cursor', cursor)
   return `?${params}`
 }
 export const api = {
+  managedUser: (username: string) => request<Data<ManagedUser>>(`/admin/users/by-username/${encodeURIComponent(username)}`),
+  changeRole: (id: number, role: User['role']) => request<Data<RoleChange>>(`/admin/users/${id}/role`, { method: 'PATCH', body: { role } }),
   me: () => request<Data<User>>('/users/me'),
   login: (username: string, password: string, register = false) => request<Data<User>>(`/auth/${register ? 'register' : 'login'}`, { method: 'POST', body: { username, password } }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),

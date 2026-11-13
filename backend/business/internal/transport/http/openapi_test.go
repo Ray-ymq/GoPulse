@@ -10,6 +10,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/user"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	adminhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/admin"
 	authhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/auth"
 	bookmarkhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/bookmark"
 	commenthttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/comment"
@@ -110,6 +111,7 @@ func registeredRoutes(t *testing.T) map[routeKey]bool {
 	passThrough := func(c *gin.Context) { c.Next() }
 	routers := []*gin.Engine{
 		NewRouter(Dependencies{Probes: probes}, APIRoutes{
+			AdminUsers:     adminhttp.NewHandler(&user.MySQLRepository{}),
 			Auth:           authhttp.NewHandler(nil, nil),
 			Authentication: passThrough,
 			Users:          userhttp.NewHandler(nil, nil, &user.MySQLRepository{}),

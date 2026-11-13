@@ -13,7 +13,7 @@ import PostComposer from './components/PostComposer.vue'
 import InkDialog from './components/InkDialog.vue'
 const route = useRoute(), router = useRouter(), query = ref(''), composer = ref(false), loggingOut = ref(false), logoutError = ref(''), logoutDialog = ref(false), communityError = ref(''), offset = ref(0)
 const authLayout = computed(() => route.meta.layout === 'auth')
-const nav = [ { path: '/', label: '发现广场', icon: 'discover' }, { path: '/following', label: '我的关注', icon: 'users' }, { path: '/bookmarks', label: '我的收藏', icon: 'bookmark' }, { path: '/notifications', label: '消息通知', icon: 'bell' }, { path: '/me', label: '个人主页', icon: 'user' } ]
+const nav = computed(() => [ { path: '/', label: '发现广场', icon: 'discover' }, { path: '/following', label: '我的关注', icon: 'users' }, { path: '/bookmarks', label: '我的收藏', icon: 'bookmark' }, { path: '/notifications', label: '消息通知', icon: 'bell' }, { path: '/me', label: '个人主页', icon: 'user' }, ...(user.value?.role === 'super_admin' ? [{ path: '/admin/roles', label: '角色管理', icon: 'users' }] : []) ])
 const suggested = computed(() => { const list = people.value.filter(p => p.id !== user.value?.id); return [...list.slice(offset.value), ...list.slice(0, offset.value)].slice(0, 3) })
 const accountName = computed(() => myProfile.value ? displayName(myProfile.value) : user.value?.username || '访客')
 let accountGeneration = 0

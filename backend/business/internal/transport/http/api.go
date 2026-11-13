@@ -1,6 +1,7 @@
 package http
 
 import (
+	adminhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/admin"
 	authhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/auth"
 	bookmarkhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/bookmark"
 	commenthttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/comment"
@@ -14,6 +15,7 @@ import (
 )
 
 type APIRoutes struct {
+	AdminUsers           *adminhttp.Handler
 	Bookmarks            *bookmarkhttp.Handler
 	Users                *userhttp.Handler
 	Auth                 *authhttp.Handler
@@ -55,6 +57,11 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	}
 	if routes.ResourceBudget != nil {
 		protected.Use(routes.ResourceBudget)
+	}
+	if routes.AdminUsers != nil {
+		admin := protected.Group("/admin", routes.AdminUsers.Authorize())
+		admin.GET("/users/by-username/:username", routes.AdminUsers.Get)
+		admin.PATCH("/users/:userId/role", routes.AdminUsers.ChangeRole)
 	}
 	if routes.Auth != nil {
 		protected.GET("/users/me", routes.Auth.CurrentUser)

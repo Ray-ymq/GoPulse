@@ -16,6 +16,9 @@ let posts = [created(3, '在山野里，找回生活原本的节奏', '周末沿
 const comments = new Map(), commands = new Map(), epochs = []
 const notifications = [{ id: 1, type: 'post.liked', created_at: now, read_at: null, actor: author, post_id: 3, comment_id: null, resource_deleted: false }, { id: 2, type: 'user.followed', created_at: now, read_at: null, actor: author, post_id: null, comment_id: null, resource_deleted: false }]
 const unexpected = [], mutations = []
+const managedAccounts = [me, { id: 2, username: 'shanye', role: 'user', created_at: now }, { id: 3, username: 'rootadmin', role: 'super_admin', created_at: now }]
+let loseNextRoleChange = false, roleChanges = 0
+const managed = account => ({ ...account, is_bootstrap_super_admin: account.id === 3 })
 function respond(res, data, status = 200, headers = {}) { res.writeHead(status, { 'Content-Type': 'application/json', ...headers }); res.end(status === 204 ? '' : JSON.stringify(data)) }
 function data(res, value, status = 200) { respond(res, { data: value }, status) }
 function paged(res, values, cursor = null) { respond(res, { data: values, meta: { next_cursor: cursor } }) }
@@ -35,6 +38,23 @@ const backend = createServer(async (req, res) => {
   }
   if (path === '/auth/logout') return respond(res, undefined, 204, { 'Set-Cookie': 'gopulse_session=; Max-Age=0; Path=/' })
   if (expire || !req.headers.cookie?.includes('gopulse_session=fixture')) return failure(res, 401, 'authentication_required')
+  if (path.startsWith('/admin/')) {
+   if (me.role !== 'super_admin') return failure(res, 403, 'permission_denied')
+   if (path.startsWith('/admin/users/by-username/') && method === 'GET') {
+    const account = managedAccounts.find(a => a.username === decodeURIComponent(path.split('/').at(-1)))
+    return account ? data(res, managed(account)) : failure(res, 404, 'user_not_found')
+   }
+   const match = path.match(/^\/admin\/users\/(\d+)\/role$/)
+   if (match && method === 'PATCH') {
+    roleChanges++
+    const account = managedAccounts.find(a => a.id === Number(match[1]))
+    if (!account) return failure(res, 404, 'user_not_found')
+    if (account.id === 3 && input.role !== 'super_admin') return failure(res, 409, 'bootstrap_super_admin_protected')
+    const changed = account.role !== input.role; account.role = input.role
+    if (loseNextRoleChange) { loseNextRoleChange = false; return failure(res, 503, 'backend_busy') }
+    return data(res, { user: managed(account), changed })
+   }
+  }
   if (path === '/users/me') return data(res, me)
   if (path === '/users/me/profile' && method === 'PATCH') { profile = { ...profile, ...input }; self.display_name = profile.display_name; return data(res, profile) }
   if (path === '/users/me/following' || path === '/users/me/followers') return paged(res, path.endsWith('following') && !author.following ? [] : [{ ...author, bio: '在路上，也在生活里', created_at: now, is_self: false }])
@@ -123,11 +143,51 @@ try {
  await page.goto(base + '/'); await page.locator('.feed .post').first().waitFor()
  for (const width of [1440, 1024, 768, 390, 320]) { await page.setViewportSize({ width, height: 900 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `页面在 ${width}px 下溢出`); if (width === 390) { if (artifactDir) await page.screenshot({ path: `${artifactDir}/mobile.png` }); const r = await page.locator('.sidebar').boundingBox(); assert.equal(Math.round(r.y + r.height), 900); await page.getByRole('button', { name: '发布新帖子', exact: true }).click(); await page.locator('dialog[open]').waitFor(); assert.equal(await page.evaluate(() => document.querySelector('dialog[open]').scrollWidth > document.querySelector('dialog[open]').clientWidth), false); await page.keyboard.press('Escape') } }
  await page.setViewportSize({ width: 1440, height: 1000 }); await page.reload(); await page.locator('.feed .post').first().waitFor()
+ // 验证普通用户无法进入管理页，也看不到管理入口。
+ await page.goto(base + '/admin/roles'); await page.waitForURL(base + '/')
+ assert.equal(await page.getByRole('button', { name: '角色管理', exact: true }).count(), 0)
+ me.role = 'super_admin'; await page.reload()
+ await page.getByRole('button', { name: '角色管理', exact: true }).click()
+ await page.getByRole('heading', { name: '角色管理', exact: true }).waitFor()
+ const lookup = async name => { await page.getByLabel('用户名', { exact: true }).fill(name); await page.getByRole('button', { name: '查找账号', exact: true }).click() }
+ await lookup('missing'); await page.getByRole('alert').filter({ hasText: '这位用户不存在' }).waitFor()
+ await lookup('rootadmin'); await page.getByText('这是初始超级管理员，不能撤销其权限。', { exact: true }).waitFor()
+ assert.equal(await page.getByRole('button', { name: '撤销超级管理员权限', exact: true }).count(), 0)
+ await lookup('shanye'); await page.getByRole('button', { name: '设为超级管理员', exact: true }).click()
+ await page.getByRole('button', { name: '取消', exact: true }).click(); assert.equal(roleChanges, 0)
+ await page.getByRole('button', { name: '设为超级管理员', exact: true }).click()
+ await page.getByRole('button', { name: '确认更改', exact: true }).click(); await page.getByRole('status').filter({ hasText: '角色已更新' }).waitFor()
+ assert.equal(managedAccounts[1].role, 'super_admin')
+ await page.getByRole('button', { name: '撤销超级管理员权限', exact: true }).click()
+ await page.getByRole('button', { name: '确认更改', exact: true }).click(); await page.getByRole('button', { name: '设为超级管理员', exact: true }).waitFor()
+ assert.equal(managedAccounts[1].role, 'user')
+ loseNextRoleChange = true
+ await page.getByRole('button', { name: '设为超级管理员', exact: true }).click(); await page.getByRole('button', { name: '确认更改', exact: true }).click()
+ await page.getByRole('alert').filter({ hasText: '未能确认角色变更结果' }).waitFor()
+ assert.equal(await page.locator('.role-account').count(), 0)
+ await lookup('shanye'); await page.getByRole('button', { name: '撤销超级管理员权限', exact: true }).waitFor(); assert.equal(roleChanges, 3)
+ for (const width of [1440, 390, 320]) {
+  await page.setViewportSize({ width, height: 900 })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `角色管理在 ${width}px 下溢出`)
+  await page.getByRole('button', { name: '撤销超级管理员权限', exact: true }).click(); await page.locator('dialog[open]').waitFor()
+  assert.equal(await page.evaluate(() => document.querySelector('dialog[open]').scrollWidth > document.querySelector('dialog[open]').clientWidth), false)
+  await page.keyboard.press('Escape')
+ }
+ if (artifactDir) await page.screenshot({ path: `${artifactDir}/admin-roles-mobile.png`, fullPage: true })
+ await page.setViewportSize({ width: 1440, height: 1000 })
+ // 模拟另一名管理员撤销当前账号权限，旧页面必须显示服务端拒绝。
+ me.role = 'user'; await lookup('shanye'); await page.getByRole('alert').filter({ hasText: '当前账号没有执行此操作的权限' }).waitFor()
+ assert.equal(await page.getByRole('button', { name: '角色管理', exact: true }).count(), 0)
+ me.role = 'super_admin'; await page.reload(); await lookup('linjian')
+ await page.getByRole('button', { name: '撤销超级管理员权限', exact: true }).click()
+ await page.getByText('你正在撤销自己的权限。完成后将返回首页。', { exact: true }).waitFor()
+ await page.getByRole('button', { name: '确认更改', exact: true }).click(); await page.waitForURL(base + '/')
+ assert.equal(me.role, 'user'); assert.equal(await page.getByRole('button', { name: '角色管理', exact: true }).count(), 0)
  expire = true; await page.locator('.nav button').filter({ hasText: '我的收藏' }).click(); await page.waitForURL('**/login?**'); await page.getByLabel('用户名', { exact: true }).fill('linjian'); await page.getByLabel('密码', { exact: true }).fill('password123'); await page.getByRole('button', { name: '登录', exact: true }).click(); await page.waitForURL('**/bookmarks')
  await page.locator('.sidebar').getByRole('button', { name: '退出登录', exact: true }).click(); await page.locator('dialog[open]').getByRole('button', { name: '退出登录', exact: true }).click(); await page.waitForURL('**/login')
  await page.goto(base + '/not-a-page'); await page.getByText('这一页，尚未写下。', { exact: true }).waitFor()
  assert.deepEqual(errors, []); assert.deepEqual(unexpected, []); assert.ok(mutations.includes('/auth/login')); assert.equal(epochs.length, 2)
- console.log('浏览器验证通过：同源代理与会话 Cookie、登录回跳、列表分页、点赞收藏、错误重试、搜索与关注、评论转义、发帖查证、编辑删除、资料更新、消息已读、会话失效、退出及 320–1440px 响应式。')
+ console.log('浏览器验证通过：同源代理与会话 Cookie、登录回跳、列表分页、点赞收藏、错误重试、搜索与关注、评论转义、发帖查证、编辑删除、资料更新、消息已读、会话失效、退出、管理员角色查询与变更、权限撤销、结果不确定时重新查询及 320–1440px 响应式。')
 } finally {
  await browser?.close(); vite.kill('SIGTERM'); backend.closeAllConnections(); await new Promise(resolve => backend.close(resolve))
 }
