@@ -11,6 +11,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/user"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/postcache"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
@@ -37,7 +38,7 @@ func TestIntegrationProfileFreshAcrossCachedPostReads(t *testing.T) {
 	}
 	defer db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", b.ID)
 	defer db.ExecContext(ctx, "DELETE FROM posts WHERE author_id IN (?, ?)", a.ID, b.ID)
-	redis := platform.NewRedis(cfg.Redis)
+	redis := redisclient.NewRedis(cfg.Redis)
 	defer redis.Close()
 	cache := rediscache.NewPostBodyRepository(redis, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 	repo := post.NewMySQLRepository(db)

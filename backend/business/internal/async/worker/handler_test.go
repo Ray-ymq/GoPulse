@@ -11,7 +11,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
 	"github.com/Ray-ymq/GoPulse/backend/internal/shared/correlation"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -106,8 +106,8 @@ func TestHandlerRoutesTemporaryFailureThroughFiniteRetryThenDeadQueue(t *testing
 		wantExchange string
 		wantAttempt  int32
 	}{
-		{name: "retry", attempt: 1, wantExchange: platform.BusinessRetryExchange, wantAttempt: 2},
-		{name: "exhausted", attempt: 3, wantExchange: platform.BusinessDeadExchange, wantAttempt: 3},
+		{name: "retry", attempt: 1, wantExchange: rabbitmq.BusinessRetryExchange, wantAttempt: 2},
+		{name: "exhausted", attempt: 3, wantExchange: rabbitmq.BusinessDeadExchange, wantAttempt: 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			processor := &processorFake{err: errors.New("mysql password=secret unavailable")}
@@ -166,7 +166,7 @@ func TestHandlerDeadLettersPermanentMessagesWithoutBlockingAndUsesFallbackRoute(
 	if processor.calls != 0 || acknowledger.acks != 1 || acknowledger.nacks != 0 || len(publisher.calls) != 1 {
 		t.Fatalf("processor=%d acks=%d nacks=%d publishes=%d", processor.calls, acknowledger.acks, acknowledger.nacks, len(publisher.calls))
 	}
-	if publisher.calls[0].exchange != platform.BusinessDeadExchange || publisher.calls[0].routingKey != platform.BusinessInvalidRoutingKey {
+	if publisher.calls[0].exchange != rabbitmq.BusinessDeadExchange || publisher.calls[0].routingKey != rabbitmq.BusinessInvalidRoutingKey {
 		t.Fatalf("dead publish = %#v", publisher.calls[0])
 	}
 }
@@ -220,7 +220,7 @@ func TestHandlerRejectsUntrustedAttemptHeader(t *testing.T) {
 			if err := handler.Handle(context.Background(), delivery); err != nil {
 				t.Fatalf("Handle() error = %v", err)
 			}
-			if acknowledger.acks != 1 || len(publisher.calls) != 1 || publisher.calls[0].exchange != platform.BusinessDeadExchange {
+			if acknowledger.acks != 1 || len(publisher.calls) != 1 || publisher.calls[0].exchange != rabbitmq.BusinessDeadExchange {
 				t.Fatalf("acks=%d publishes=%#v", acknowledger.acks, publisher.calls)
 			}
 		})
@@ -276,7 +276,7 @@ func TestSearchProfileRoutesPermanentProcessorFailureDirectlyToSearchDead(t *tes
 		t.Fatalf("processor=%d acks=%d nacks=%d publishes=%d", processor.calls, acknowledger.acks, acknowledger.nacks, len(publisher.calls))
 	}
 	call := publisher.calls[0]
-	if call.exchange != platform.SearchDeadExchange || call.routingKey != bus.PostCreatedRoutingKey || call.message.Headers[AttemptHeader] != int32(0) {
+	if call.exchange != rabbitmq.SearchDeadExchange || call.routingKey != bus.PostCreatedRoutingKey || call.message.Headers[AttemptHeader] != int32(0) {
 		t.Fatalf("search dead publish = %#v", call)
 	}
 }
@@ -302,7 +302,7 @@ func TestSearchProfileDefersExhaustedV2ProjectionFailure(t *testing.T) {
 		t.Fatalf("processor=%d acks=%d nacks=%d publishes=%d", processor.calls, acknowledger.acks, acknowledger.nacks, len(publisher.calls))
 	}
 	call := publisher.calls[0]
-	if call.exchange != platform.SearchRetryExchange || call.routingKey != delivery.RoutingKey || call.message.Headers[AttemptHeader] != int32(0) {
+	if call.exchange != rabbitmq.SearchRetryExchange || call.routingKey != delivery.RoutingKey || call.message.Headers[AttemptHeader] != int32(0) {
 		t.Fatalf("deferred search publish = %#v", call)
 	}
 	if call.message.MessageId != delivery.MessageId || call.message.Type != delivery.Type || !bytes.Equal(call.message.Body, originalBody) {

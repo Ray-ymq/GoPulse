@@ -26,7 +26,9 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/postcache"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/ratelimit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/resourcebudget"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http"
 	adminhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/admin"
@@ -172,9 +174,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	}
 	authentication := middleware.RequireAuthentication(cookies.Name(), tokens)
 
-	var redisClient *platform.Redis
+	var redisClient *redisclient.Redis
 	var elasticsearchClient *platform.Elasticsearch
-	var rabbitMQChecker *platform.RabbitMQ
+	var rabbitMQChecker *rabbitmq.RabbitMQ
 	var eventOutbox *outbox.Repository
 	var dispatcher *outbox.Dispatcher
 	var protectionBudget *resourcebudget.Budget
@@ -185,7 +187,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			return nil, errors.New("activate business event v2")
 		}
 		if !cfg.RedisDisabled {
-			redisClient = platform.NewRedis(cfg.Redis)
+			redisClient = redisclient.NewRedis(cfg.Redis)
 			assembly.addResource("redis", redisClient.Close)
 		}
 		protectionBudget, err = resourcebudget.New(resourcebudget.Config{
@@ -229,7 +231,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			return nil, errors.New("initialize Elasticsearch client")
 		}
 
-		rabbitMQChecker, err = platform.NewRabbitMQ(cfg.RabbitMQURL)
+		rabbitMQChecker, err = rabbitmq.NewRabbitMQ(cfg.RabbitMQURL)
 		if err != nil {
 			return nil, errors.New("initialize RabbitMQ checker")
 		}
@@ -248,7 +250,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		publishers := make([]outbox.Publisher, 0, cfg.Outbox.PublishConcurrency)
 		for i := 0; i < cfg.Outbox.PublishConcurrency; i++ {
-			publisher, publisherErr := platform.NewRabbitMQPublisher(cfg.RabbitMQURL, platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay})
+			publisher, publisherErr := rabbitmq.NewRabbitMQPublisher(cfg.RabbitMQURL, rabbitmq.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay})
 			if publisherErr != nil {
 				return nil, errors.New("initialize RabbitMQ publisher")
 			}

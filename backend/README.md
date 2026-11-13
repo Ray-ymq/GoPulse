@@ -43,6 +43,8 @@ backend/
     │   │   └── worker/              # 消费运行、确认与重试
     │   ├── platform/                # 外部连接、健康检查与技术适配
     │   │   ├── config/              # 配置读取与校验
+    │   │   ├── redisclient/         # Redis 连接、操作与故障恢复
+    │   │   ├── rabbitmq/            # RabbitMQ 探测、消息发布与拓扑
     │   │   ├── postcache/           # Redis 帖子正文缓存
     │   │   ├── ratelimit/           # 请求限流
     │   │   └── resourcebudget/      # 进程资源预算
@@ -65,6 +67,10 @@ backend/
 `cmd` 构造依赖并管理进程生命周期。`transport/http` 处理路由、请求与响应，通过接口调用业务。`modules` 按功能组织业务，在各模块内部用 `model`、`validation`、`service` 和 `repository` 等文件区分职责。
 
 业务模块不依赖 Gin、HTTP 适配或 Worker 运行实现。通知与搜索 Processor 负责具体投影，`async/worker` 负责消息确认、重试和死信。帖子模块定义缓存接口，`platform/postcache` 实现 Redis 适配，由入口注入。
+
+`platform` 根包保留 MySQL、Elasticsearch、数据库版本检查和健康检查。Redis 与 RabbitMQ 分别由 `platform/redisclient` 和 `platform/rabbitmq` 提供；调用方直接导入对应子包。帖子缓存直接依赖 Redis 子包，避免通过根包引入其他适配器。
+
+`platform/config` 保持一个包。`config.go` 提供 API 配置加载入口，其余文件按 MySQL、Redis、搜索、认证、请求保护、Outbox、运行环境和通用解析划分职责。Worker 和 Indexer 继续使用各自的配置入口。配置变量、默认值和校验规则保持不变。
 
 数据库写入和对应 Outbox 记录使用同一事务。业务模块可以在事务内调用 `async/outbox`，不为目录分层拆开原子写入。存储接口与实现仍可保留在同一业务包中。
 

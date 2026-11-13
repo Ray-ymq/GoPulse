@@ -14,8 +14,8 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -319,7 +319,7 @@ func openSession(ctx context.Context, connectionURL string, options RuntimeOptio
 		return nil, err
 	}
 	session.channel = channel
-	if err := platform.DeclareTopology(channel, profile.Topology, options.RetryDelay); err != nil {
+	if err := rabbitmq.DeclareTopology(channel, profile.Topology, options.RetryDelay); err != nil {
 		_ = session.Close()
 		return nil, err
 	}

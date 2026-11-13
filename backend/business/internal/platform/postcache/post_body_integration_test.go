@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
 func TestIntegrationPostBodyRedisTTLAndRevisionIsolation(t *testing.T) {
 	cfg := integrationtest.Environment(t)
-	client := platform.NewRedis(cfg.Redis)
+	client := redisclient.NewRedis(cfg.Redis)
 	defer client.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

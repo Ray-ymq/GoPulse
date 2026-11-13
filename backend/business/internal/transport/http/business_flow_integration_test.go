@@ -30,6 +30,8 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/postcache"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 	authhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/auth"
 	commenthttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/comment"
@@ -152,11 +154,11 @@ func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	rabbitPublisher, err := platform.NewRabbitMQPublisher(cfg.RabbitMQURL, platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay})
+	rabbitPublisher, err := rabbitmq.NewRabbitMQPublisher(cfg.RabbitMQURL, rabbitmq.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay})
 	if err != nil {
 		t.Fatalf("NewRabbitMQPublisher() error = %v", err)
 	}
-	redisClient := platform.NewRedis(cfg.Redis)
+	redisClient := redisclient.NewRedis(cfg.Redis)
 	searchClient, err := platform.NewElasticsearch(cfg.Elasticsearch)
 	if err != nil {
 		t.Fatalf("NewElasticsearch() error = %v", err)

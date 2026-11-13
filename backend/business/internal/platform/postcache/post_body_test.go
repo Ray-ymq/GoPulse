@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/post"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 )
 
 type fakeClient struct {
@@ -70,7 +70,7 @@ func TestPostBodyRepositoryMissAndClientFailure(t *testing.T) {
 	for _, test := range []struct {
 		err  error
 		want error
-	}{{platform.ErrRedisKeyNotFound, nil}, {failure, failure}} {
+	}{{redisclient.ErrRedisKeyNotFound, nil}, {failure, failure}} {
 		repository := NewPostBodyRepository(&fakeClient{get: func(context.Context, string) (string, error) { return "", test.err }}, time.Minute, time.Second)
 		_, hit, err := repository.GetBody(context.Background(), key)
 		if hit || !errors.Is(err, test.want) {

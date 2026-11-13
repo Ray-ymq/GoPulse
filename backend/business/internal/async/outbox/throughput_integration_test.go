@@ -10,6 +10,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/async/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
 	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
@@ -54,7 +55,7 @@ func TestIntegrationRabbitMQDispatchAtLeast300PerSecond(t *testing.T) {
 	}
 	publishers := []outbox.Publisher{}
 	for i := 0; i < 8; i++ {
-		p, err := platform.NewRabbitMQPublisher(cfg.RabbitMQURL)
+		p, err := rabbitmq.NewRabbitMQPublisher(cfg.RabbitMQURL)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 )
 
 func TestClientsCanBeConstructedWhenDependenciesAreUnavailable(t *testing.T) {
@@ -21,16 +23,16 @@ func TestClientsCanBeConstructedWhenDependenciesAreUnavailable(t *testing.T) {
 	}
 	defer func() { _ = mysqlClient.Close() }()
 
-	redisClient := NewRedis(config.RedisConfig{
+	redisClient := redisclient.NewRedis(config.RedisConfig{
 		Host:     "127.0.0.1",
 		Port:     1,
 		Password: "secret",
 	})
 	defer func() { _ = redisClient.Close() }()
 
-	rabbitMQ, err := NewRabbitMQ("amqp://gopulse:secret@127.0.0.1:1/")
+	rabbitMQ, err := rabbitmq.NewRabbitMQ("amqp://gopulse:secret@127.0.0.1:1/")
 	if err != nil {
-		t.Fatalf("NewRabbitMQ() error = %v", err)
+		t.Fatalf("rabbitmq.NewRabbitMQ() error = %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

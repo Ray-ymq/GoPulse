@@ -12,6 +12,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/postcache"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
@@ -30,7 +31,7 @@ func TestIntegrationDetailQueryCountAndEpochGuard(t *testing.T) {
 	state, _ := businessstate.NewRepository(db)
 	counter := &readCostDatabase{database: db}
 	repo := post.NewMySQLRepository(counter, post.RepositoryOptions{BusinessState: state})
-	redis := platform.NewRedis(cfg.Redis)
+	redis := redisclient.NewRedis(cfg.Redis)
 	defer redis.Close()
 	service := post.NewService(repo).WithBodyCache(rediscache.NewPostBodyRepository(redis, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout), nil)
 	defer service.Shutdown(ctx)

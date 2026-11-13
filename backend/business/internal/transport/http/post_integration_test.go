@@ -20,6 +20,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/postcache"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 	authhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/auth"
 	commenthttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/comment"
@@ -135,7 +136,7 @@ func integrationPostRouter(t *testing.T, cfg config.Config, database *sql.DB) st
 	}
 	cookies := authhttp.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	authService := auth.NewService(user.NewMySQLRepository(database), passwords, tokens)
-	redisClient := platform.NewRedis(cfg.Redis)
+	redisClient := redisclient.NewRedis(cfg.Redis)
 	t.Cleanup(func() { _ = redisClient.Close() })
 	postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 	postService := post.NewService(post.NewMySQLRepository(database)).WithBodyCache(postBodyCache, nil)

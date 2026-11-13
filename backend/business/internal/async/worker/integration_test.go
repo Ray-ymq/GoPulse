@@ -16,6 +16,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
 	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -91,7 +92,7 @@ func TestIntegrationBusinessWorkerEndToEndRetryDeadAndShutdownRedelivery(t *test
 	waitNotificationCount(t, ctx, database, postID, 2)
 
 	publishInvalid(t, cfg.RabbitMQURL)
-	waitQueueMessages(t, ctx, cfg.RabbitMQURL, platform.BusinessDeadQueue, 1)
+	waitQueueMessages(t, ctx, cfg.RabbitMQURL, rabbitmq.BusinessDeadQueue, 1)
 
 	stop()
 	waitRuntime(t, done)
@@ -142,12 +143,12 @@ func TestIntegrationBusinessWorkerEndToEndRetryDeadAndShutdownRedelivery(t *test
 	stop()
 	waitRuntime(t, done)
 
-	deadBefore := queueMessages(t, cfg.RabbitMQURL, platform.BusinessDeadQueue)
+	deadBefore := queueMessages(t, cfg.RabbitMQURL, rabbitmq.BusinessDeadQueue)
 	failEvent, _ := bus.NewPostLiked(time.Now().UTC().Truncate(time.Second), actorID, recipientID, postID)
 	runtime = newIntegrationRuntime(t, cfg.RabbitMQURL, alwaysFailProcessor{}, 1)
 	stop, done = startRuntime(runtime)
 	publishEnvelope(t, cfg.RabbitMQURL, failEvent)
-	waitQueueMessages(t, ctx, cfg.RabbitMQURL, platform.BusinessDeadQueue, deadBefore+1)
+	waitQueueMessages(t, ctx, cfg.RabbitMQURL, rabbitmq.BusinessDeadQueue, deadBefore+1)
 	assertEventNotificationCount(t, ctx, database, failEvent.EventID, 0)
 	stop()
 	waitRuntime(t, done)
@@ -205,14 +206,14 @@ func publishRaw(t *testing.T, url, routing string, message amqp.Publishing) {
 		t.Fatalf("open RabbitMQ channel: %v", err)
 	}
 	defer channel.Close()
-	if err := platform.DeclareBusinessTopology(channel, time.Second); err != nil {
+	if err := rabbitmq.DeclareBusinessTopology(channel, time.Second); err != nil {
 		t.Fatalf("declare topology: %v", err)
 	}
 	if err := channel.Confirm(false); err != nil {
 		t.Fatalf("enable confirms: %v", err)
 	}
 	confirms := channel.NotifyPublish(make(chan amqp.Confirmation, 1))
-	if err := channel.PublishWithContext(context.Background(), platform.BusinessExchange, routing, true, false, message); err != nil {
+	if err := channel.PublishWithContext(context.Background(), rabbitmq.BusinessExchange, routing, true, false, message); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	select {
@@ -226,7 +227,7 @@ func publishRaw(t *testing.T, url, routing string, message amqp.Publishing) {
 }
 func purgeBusinessQueues(t *testing.T, url string) {
 	t.Helper()
-	for _, queue := range []string{platform.BusinessQueue, platform.BusinessRetryQueue, platform.BusinessDeadQueue} {
+	for _, queue := range []string{rabbitmq.BusinessQueue, rabbitmq.BusinessRetryQueue, rabbitmq.BusinessDeadQueue} {
 		connection, err := amqp.Dial(url)
 		if err != nil {
 			t.Fatalf("dial RabbitMQ to reset %s: %v", queue, err)
@@ -255,10 +256,10 @@ func purgeBusinessQueues(t *testing.T, url string) {
 		t.Fatalf("open RabbitMQ channel to declare reset topology: %v", err)
 	}
 	defer channel.Close()
-	if err := platform.DeclareBusinessTopology(channel, time.Second); err != nil {
+	if err := rabbitmq.DeclareBusinessTopology(channel, time.Second); err != nil {
 		t.Fatalf("declare topology: %v", err)
 	}
-	for _, queue := range []string{platform.BusinessQueue, platform.BusinessRetryQueue, platform.BusinessDeadQueue} {
+	for _, queue := range []string{rabbitmq.BusinessQueue, rabbitmq.BusinessRetryQueue, rabbitmq.BusinessDeadQueue} {
 		if _, err := channel.QueuePurge(queue, false); err != nil {
 			t.Fatalf("purge %s: %v", queue, err)
 		}
@@ -419,7 +420,7 @@ func TestIntegrationFollowNotificationRetryAndReplay(t *testing.T) {
 		}
 	}
 	// Wait for retry delivery to finish, then verify the unique side effect.
-	waitQueueMessages(t, ctx, cfg.RabbitMQURL, platform.BusinessRetryQueue, 0)
+	waitQueueMessages(t, ctx, cfg.RabbitMQURL, rabbitmq.BusinessRetryQueue, 0)
 	records, err := repository.ListByRecipient(ctx, recipient, notification.ListOptions{Limit: 20})
 	if err != nil || len(records) != 1 || records[0].Type != bus.UserFollowed || records[0].PostID != nil {
 		t.Fatalf("follow notification %#v %v", records, err)

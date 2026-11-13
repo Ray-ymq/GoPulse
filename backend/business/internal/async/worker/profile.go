@@ -1,7 +1,7 @@
 package worker
 
 import (
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
 )
 
 type Profile struct {
@@ -10,7 +10,7 @@ type Profile struct {
 	Module            string
 	Consumer          string
 	ConsumerTag       string
-	Topology          platform.Topology
+	Topology          rabbitmq.Topology
 	IgnoreSelfEvents  bool
 	IncludePostID     bool
 	RetryOnExhaustion bool
@@ -20,13 +20,13 @@ var (
 	BusinessProfile = Profile{
 		Name: "business worker", Service: "business-worker", Module: "worker",
 		Consumer:    "business",
-		ConsumerTag: "gopulse-business-worker", Topology: platform.BusinessTopology, IgnoreSelfEvents: true,
+		ConsumerTag: "gopulse-business-worker", Topology: rabbitmq.BusinessTopology, IgnoreSelfEvents: true,
 	}
 	SearchProfile = Profile{
 		Name: "search indexer", Service: "search-indexer", Module: "search",
 		Consumer:          "search",
 		ConsumerTag:       "gopulse-search-indexer",
-		Topology:          platform.SearchTopology,
+		Topology:          rabbitmq.SearchTopology,
 		IncludePostID:     true,
 		RetryOnExhaustion: true,
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/postcache"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
@@ -47,7 +48,7 @@ func TestIntegrationPostBodyReadCostBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read current data epoch: %v", err)
 	}
-	redisClient := platform.NewRedis(cfg.Redis)
+	redisClient := redisclient.NewRedis(cfg.Redis)
 	defer redisClient.Close()
 	if err := redisClient.Check(ctx); err != nil {
 		t.Fatalf("Redis Check() error = %v", err)

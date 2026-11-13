@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/post"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 )
 
 const (
@@ -64,7 +64,7 @@ func (repository *PostBodyRepository) GetBody(ctx context.Context, key post.Body
 	operationContext, cancel := context.WithTimeout(ctx, repository.operationTimeout)
 	defer cancel()
 	value, err := repository.client.Get(operationContext, PostBodyKey(key))
-	if errors.Is(err, platform.ErrRedisKeyNotFound) {
+	if errors.Is(err, redisclient.ErrRedisKeyNotFound) {
 		observe("miss")
 		return post.Body{}, false, nil
 	}

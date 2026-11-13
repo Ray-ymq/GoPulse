@@ -13,6 +13,12 @@ import (
 const internalPrefix = "github.com/Ray-ymq/GoPulse/backend/internal/"
 
 func boundaryViolation(source, imported string) string {
+	if filepath.ToSlash(filepath.Dir(source)) == "platform" && (imported == "github.com/redis/go-redis/v9" || imported == "github.com/rabbitmq/amqp091-go" || imported == internalPrefix+"platform/redisclient" || imported == internalPrefix+"platform/rabbitmq" || imported == internalPrefix+"async/outbox") {
+		return "platform 根包不得重新引入 Redis 或 RabbitMQ 适配依赖"
+	}
+	if strings.HasPrefix(source, "platform/postcache/") && imported == internalPrefix+"platform" {
+		return "帖子缓存必须直接依赖所需适配器，不得依赖 platform 根包"
+	}
 	if strings.HasPrefix(source, "modules/") && imported == "github.com/gin-gonic/gin" {
 		return "业务模块不得依赖 Gin"
 	}
@@ -108,6 +114,12 @@ func TestBoundaryRules(t *testing.T) {
 		{"async/worker/handler.go", "modules/post", true},
 		{"async/worker/handler.go", "modules/bus", false},
 		{"platform/mysql.go", "modules/user", true},
+		{"platform/mysql.go", "platform/redisclient", true},
+		{"platform/mysql.go", "platform/rabbitmq", true},
+		{"platform/mysql.go", "async/outbox", true},
+		{"platform/rabbitmq/rabbitmq_publisher.go", "async/outbox", false},
+		{"platform/postcache/post_body.go", "platform", true},
+		{"platform/postcache/post_body.go", "platform/redisclient", false},
 		{"platform/postcache/post_body.go", "modules/post", false},
 		{"platform/postcache/post_body.go", "modules/user", true},
 		{"shared/apperror/error.go", "modules/user", true},
