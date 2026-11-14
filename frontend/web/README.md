@@ -58,7 +58,7 @@ npm run test:e2e
 
 该测试会自行启动本地 Vite 服务并在结束时停止。Linux 缺少浏览器运行库时，可执行 `npx playwright install --with-deps chromium`。真实数据库、搜索和异步通知的联调仍需使用已启动的业务环境验证。
 
-容器构建和部署配置已移除。部署静态产物时需自行配置 API 同源代理和前端路由回退。前端 CI 保留在 `.github/workflows/frontend.yml`。
+容器构建使用本目录的 `Dockerfile`，由 Nginx 托管静态产物并提供 API 同源代理和前端路由回退。完整部署步骤见 [容器部署说明](../../deploy/README.md)。前端 CI 保留在 `.github/workflows/frontend.yml`。
 
 ## 目录
 

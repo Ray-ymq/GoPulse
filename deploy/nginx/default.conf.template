@@ -1,0 +1,58 @@
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+upstream gopulse_api {
+    zone gopulse_api 64k;
+    server api:8080 resolve;
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    server_name ${GOPULSE_DOMAIN};
+    server_tokens off;
+
+    location = /health {
+        access_log off;
+        return 200 'ok';
+    }
+
+    location / {
+        return 308 https://${GOPULSE_DOMAIN}${GOPULSE_HTTPS_SUFFIX}$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name ${GOPULSE_DOMAIN};
+    server_tokens off;
+    ssl_certificate /etc/nginx/tls/fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://gopulse_api;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+    }
+
+    location /assets/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

@@ -32,7 +32,7 @@ GoPulse/
 
 ## 开发准备
 
-需要 Go 1.26、Node.js 24.20.0 或更新版本、Python 3.12 或更新版本，以及 Git 和 Make。仓库通过源码交付，不提供部署配置、本地开发编排或压测工具。
+源码开发需要 Go 1.26、Node.js 24.20.0 或更新版本、Python 3.12 或更新版本，以及 Git 和 Make。单机容器构建与部署使用 Docker Compose，步骤见 [容器部署说明](deploy/README.md)。仓库不提供压测工具。
 
 1. 自行准备 MySQL、Redis、RabbitMQ 和 Elasticsearch，并创建应用使用的数据库与账号。
 2. 仅在 `.env` 不存在时复制配置示例，避免覆盖已有配置：

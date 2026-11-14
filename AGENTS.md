@@ -24,7 +24,7 @@ GoPulse 采用多模块结构。根 `Makefile` 的 `GO_MODULES` 和 `NPM_MODULES
 - 业务 Go 代码放在 `backend/business/`。日志使用 `internal/logging`，健康检查使用 `internal/platform`，各命令入口通过标准库处理信号和退出。
 - 前端开发与验证按 [前端说明](frontend/web/README.md) 执行。接口契约以 [OpenAPI](backend/business/api/openapi.yaml) 为准。
 - 配置示例统一维护在根 `.env.example`。调整配置时，同步核对代码中的读取方式、默认值和校验条件。`.env` 中的敏感值不得提交或写入日志。
-- 仓库不提供部署配置、本地开发编排或压测工具。运行前需自行准备依赖；历史压测资料不能作为可执行入口。新增运行或压测工具时，必须补充操作说明。
+- 单机容器部署入口为根 `compose.yml` 和 `deploy/README.md`。宿主机源码运行前需自行准备依赖。仓库不提供压测工具，历史压测资料不能作为可执行入口。新增运行或压测工具时，必须补充操作说明。
 - runtimekit 及可观测平台已移除。不得将旧模块目录、旧 CI 标签或旧平台配置作为当前入口。
 
 ## 写作规则

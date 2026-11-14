@@ -1,0 +1,13 @@
+**
+!frontend/
+!frontend/web/
+!frontend/web/**
+!deploy/
+!deploy/nginx/
+!deploy/nginx/default.conf.template
+**/.env*
+**/node_modules/
+**/dist/
+**/coverage/
+**/test-results/
+**/playwright-report/

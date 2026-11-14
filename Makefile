@@ -6,6 +6,28 @@ GO_MODULES := backend/business
 NPM_MODULES := frontend/web
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 
+GOPULSE_IMAGE_TAG ?= $(shell cat VERSION)
+COMPOSE = GOPULSE_IMAGE_TAG="$(GOPULSE_IMAGE_TAG)" docker compose
+.DEFAULT_GOAL := help
+
+.PHONY: container-build container-config container-up container-down container-logs
+
+container-build:
+	@docker build --build-arg VERSION="$$(cat VERSION)" -t "gopulse/backend:$(GOPULSE_IMAGE_TAG)" -f backend/business/Dockerfile .
+	@docker build --build-arg VERSION="$$(cat VERSION)" -t "gopulse/web:$(GOPULSE_IMAGE_TAG)" -f frontend/web/Dockerfile .
+
+container-config:
+	@$(COMPOSE) config --quiet
+
+container-up: container-config
+	@$(COMPOSE) up -d --wait --wait-timeout 300
+
+container-down:
+	@$(COMPOSE) down
+
+container-logs:
+	@$(COMPOSE) logs --tail=100 -f
+
 # CI and local reproductions use this private workspace so shared Go modules
 # come from this checkout, never an older copy downloaded from the module proxy.
 CI_WORKSPACE := $(CURDIR)/.run/ci/go.work
@@ -16,6 +38,7 @@ REQUIRE_MODULE = $(if $(and $(MODULE),$(filter $(MODULE),$(MODULES))),:,printf '
 
 help:
 	@printf '%s\n' 'GoPulse 构建与验证入口：' '  make test / race / check / lint / build MODULE=backend/business' '  make ci-check / ci-test / ci-build MODULE=backend/business' '  make build / ci-tools / list-ci-labels' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)'
+	@printf '%s\n' '容器部署入口：' '  make container-build / container-config / container-up / container-down / container-logs' '  GOPULSE_IMAGE_TAG 默认读取 VERSION；部署步骤见 deploy/README.md。'
 
 list-go-modules:
 	@printf '%s\n' $(GO_MODULES)
