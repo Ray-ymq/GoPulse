@@ -7,7 +7,7 @@ GoPulse 采用多模块结构。根 `Makefile` 的 `GO_MODULES` 和 `NPM_MODULES
 | 路径 | 职责 |
 | --- | --- |
 | `backend/business/` | 业务 API、异步通知、搜索索引及数据库迁移 |
-| `frontend/web/` | Vue 3、TypeScript 和 Vite 用户前端，采用纸墨主题 |
+| `frontend/web/` | Vue 3、TypeScript 和 Vite 用户前端，采用现代简洁主题 |
 | `tools/ci/` | CI 模块选择、提交规范校验及工具测试 |
 | `tools/make/` | 共享 Makefile 片段 |
 | `docs/` | 技术说明和设计资料 |
