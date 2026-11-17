@@ -1,7 +1,7 @@
 {
   "name": "@gopulse/web",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0-rc.1",
   "type": "module",
   "engines": {
     "node": ">=24.20.0"
