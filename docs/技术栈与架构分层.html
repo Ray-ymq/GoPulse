@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="GoPulse 当前技术栈、逻辑分层、进程边界及核心数据链路。">
+<title>GoPulse · 技术栈与架构分层</title>
+<style>
+:root{--bg:#f3f5f8;--paper:#fff;--ink:#182735;--muted:#586879;--line:#dbe3eb;--accent:#126b68;--soft:#e6f4ef;--blue:#365fc0;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}a{color:var(--accent);text-underline-offset:4px}a:hover{color:var(--blue)}.wrap{max-width:1240px;margin:auto;padding:40px 32px 64px}header{position:relative;padding:44px 48px;background:#142d36;border-radius:24px;color:#fff;overflow:hidden}header:after{content:"";position:absolute;width:290px;height:290px;right:-105px;top:-140px;border:52px solid #24515a;border-radius:50%;pointer-events:none}.eyebrow{color:#9edbc9;font:12px var(--mono);letter-spacing:2px}h1{font-size:clamp(28px,4vw,46px);line-height:1.25;margin:18px 0}header p{max-width:790px;color:#cedde2}header .meta{color:#a9c1c9;font-size:12px;margin-top:26px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0 32px}.stat{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px 22px}.stat strong{display:block;font-size:25px;line-height:1.4}.stat span{font-size:13px;color:var(--muted)}nav{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 32px}nav a{text-decoration:none;border:1px solid var(--line);background:var(--paper);padding:7px 16px;border-radius:30px;font-size:13px}section{margin:36px 0}h2{font-size:25px;margin:0 0 8px;letter-spacing:-.5px}h3{font-size:17px;margin:0 0 8px}p{margin:8px 0 16px}.intro{color:var(--muted);max-width:920px}.index{font:13px var(--mono);color:var(--accent);margin-right:10px}.architecture{display:grid;grid-template-columns:1fr 250px;gap:18px;margin-top:22px}.layers{display:grid;gap:10px}.layer{display:grid;grid-template-columns:46px 160px 1fr;gap:14px;background:var(--paper);border:1px solid var(--line);border-radius:13px;padding:20px;align-items:start}.layer .num{font:13px var(--mono);color:var(--accent);background:var(--soft);padding:6px;border-radius:6px;text-align:center}.layer h3{margin:1px 0 3px}.layer small{color:var(--muted)}.layer p{margin:0;color:var(--muted);font-size:13px}.tags{display:flex;gap:6px;flex-wrap:wrap;margin:9px 0 0}.tag{background:#edf2f7;border-radius:5px;padding:1px 7px;font:12px/1.8 var(--mono);color:#39556a}.side{padding:24px;background:#e6efed;border-radius:14px}.side h3{margin-top:20px}.side h3:first-child{margin-top:0}.side p{font-size:13px;color:#3c5a58}.side code{font-size:12px;overflow-wrap:anywhere}.note{padding:16px 20px;background:#eaf0fb;border-left:3px solid #5273bb;border-radius:0 8px 8px 0;font-size:13px;margin-top:18px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:15px;overflow:hidden;margin-top:20px}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:680px;text-align:left;font-size:13px}th{background:#eaf0f4;color:#40556a;font-weight:600}th,td{padding:14px 18px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-child td{border-bottom:0}td:first-child{font-weight:600}td code{font-size:12px}code{font-family:var(--mono);font-size:.9em;overflow-wrap:anywhere}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px}.card{background:var(--paper);border:1px solid var(--line);border-radius:15px;padding:24px}.card p{font-size:13px;color:var(--muted)}.flow{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:16px 0}.node{padding:6px 10px;border-radius:7px;background:#edf3f5;font-size:12px}.node.hot{background:var(--soft);color:#17605a}.arrow{color:#768c99;font-size:15px}.card ol{padding-left:18px;font-size:13px;color:var(--muted)}.card li{margin:8px 0}details{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 22px;margin-top:12px}summary{cursor:pointer;font-weight:600}details ul{padding-left:20px;font-size:13px}details li{margin:8px 0}.boundary{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}.boundary article{background:var(--paper);padding:24px;border:1px solid var(--line);border-radius:14px}.boundary p{font-size:13px;color:var(--muted)}footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}@media(max-width:900px){.architecture{grid-template-columns:1fr}.side{display:grid;grid-template-columns:1fr 1fr;gap:16px}.side h3{margin-top:0}.cards{grid-template-columns:1fr}.layer{grid-template-columns:40px 140px 1fr}.summary{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.wrap{padding:18px 14px 40px}header{padding:28px 24px;border-radius:16px}.stat{padding:14px}.stat strong{font-size:21px}.layer{grid-template-columns:36px 1fr;gap:10px;padding:16px}.layer .content{grid-column:2}.side,.boundary{grid-template-columns:1fr}h2{font-size:22px}.card{padding:20px}}@media print{body{background:#fff;font-size:11px}.wrap{max-width:none;padding:0}header{background:#fff;color:var(--ink);padding:20px 0;border-bottom:2px solid var(--ink);border-radius:0}header p,header .meta,.eyebrow{color:var(--muted)}header:after,nav{display:none}.summary{margin:16px 0}.architecture{grid-template-columns:1fr}.side{display:block}.layer,.card,.boundary article{break-inside:avoid}section{margin:24px 0}.cards{grid-template-columns:1fr}.scroll{overflow:visible}table{min-width:0}a{color:inherit}details{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="eyebrow">GOPULSE / ENGINEERING ATLAS</div>
+<h1>技术栈与架构分层</h1>
+<p>以社交业务为核心，将界面、HTTP 接入、业务处理、数据访问、异步协作和基础服务归纳为六个逻辑层。日志、健康检查、部署与验证工具支持各层。</p>
+<div class="meta">整理日期：2026-11-18 · 依据：仓库代码与配置 · 产品版本以 VERSION 为准 · 单文件 / 离线可读</div>
+</header>
+<div class="summary" aria-label="项目概览">
+<div class="stat"><strong>Vue + Go</strong><span>用户前端与业务后端</span></div>
+<div class="stat"><strong>1 + 1</strong><span>1 个 Go 模块，1 个 npm 模块</span></div>
+<div class="stat"><strong>3 类常驻进程</strong><span>API、Worker、Search Indexer</span></div>
+<div class="stat"><strong>事务 + 消息</strong><span>MySQL 事实与异步投影</span></div>
+</div>
+<nav aria-label="文档导航"><a href="#layers">架构分层</a><a href="#stack">技术栈清单</a><a href="#flows">核心链路</a><a href="#modules">模块与进程</a><a href="#boundaries">边界说明</a><a href="#sources">依据文件</a></nav>
+<main>
+<section id="layers">
+<h2><span class="index">01</span>从用户界面到基础服务</h2>
+<p class="intro">以下分层是对现有实现的职责抽象。各层可能位于同一 Go 模块或同一进程中，层级编号不代表每个请求都会依次经过全部层。</p>
+<div class="architecture">
+<div class="layers">
+<article class="layer"><div class="num">L1</div><div><h3>用户交互层</h3><small>页面、路由、界面状态</small></div><div class="content"><p>Vue 页面与组件展示社交业务；composables 管理认证、关注、收藏和发帖状态；Fetch 封装请求与错误处理。</p><div class="tags"><span class="tag">Vue 3</span><span class="tag">TypeScript</span><span class="tag">Vue Router</span><span class="tag">CSS</span></div></div></article>
+<article class="layer"><div class="num">L2</div><div><h3>HTTP 接入层</h3><small>代理、契约、请求保护</small></div><div class="content"><p>Nginx 提供静态资源与 API 代理；Gin 注册路由和中间件，处理认证、授权、同源检查、限流及请求日志。</p><div class="tags"><span class="tag">Nginx</span><span class="tag">Gin</span><span class="tag">OpenAPI 3.1</span><span class="tag">JWT / Cookie</span></div></div></article>
+<article class="layer"><div class="num">L3</div><div><h3>业务应用层</h3><small>用例与业务规则</small></div><div class="content"><p>按认证、用户、关注、帖子、评论、点赞、收藏、搜索和通知组织业务包。Service 执行输入校验、权限相关规则与业务流程。</p><div class="tags"><span class="tag">Go</span><span class="tag">Service</span><span class="tag">业务模型</span><span class="tag">businessstate</span></div></div></article>
+<article class="layer"><div class="num">L4</div><div><h3>数据访问层</h3><small>仓储、事务、外部适配</small></div><div class="content"><p>Repository 使用 SQL 读写业务事实；platform 封装依赖连接与客户端。帖子正文缓存和搜索适配器分别连接 Redis 与 Elasticsearch。</p><div class="tags"><span class="tag">database/sql</span><span class="tag">Repository</span><span class="tag">go-redis</span><span class="tag">ES Client</span></div></div></article>
+<article class="layer"><div class="num">L5</div><div><h3>异步协作层</h3><small>事件分发与后台消费</small></div><div class="content"><p>事务 Outbox 保存待分发事件；API 内的 Dispatcher 发布消息。Worker 处理异步业务和通知，Indexer 更新搜索索引。</p><div class="tags"><span class="tag">Outbox</span><span class="tag">AMQP 0-9-1</span><span class="tag">Worker</span><span class="tag">重试 / 死信</span></div></div></article>
+<article class="layer"><div class="num">L6</div><div><h3>基础服务层</h3><small>存储、缓存、队列、检索</small></div><div class="content"><p>MySQL 保存业务事实与异步状态；Redis 提供缓存与限流相关能力；RabbitMQ 传递消息；Elasticsearch 提供全文搜索。</p><div class="tags"><span class="tag">MySQL</span><span class="tag">Redis</span><span class="tag">RabbitMQ</span><span class="tag">Elasticsearch</span></div></div></article>
+</div>
+<aside class="side" aria-label="贯穿各层的能力">
+<div><h3>配置与运行管理</h3><p><code>internal/platform/config/</code> 校验配置；<code>internal/logging/</code> 输出 JSON 日志；<code>internal/platform/</code> 提供健康探针。各命令通过标准库处理信号与退出。</p></div>
+<div><h3>工程与交付</h3><p>Makefile 提供模块验证与镜像构建入口，Docker 打包，根 Compose 配置单机部署。宿主机源码运行前需自行准备依赖。</p></div>
+<div><h3>质量与容量</h3><p>Go testing、竞态检测、Vitest 与静态检查验证实现；Playwright 使用隔离接口 fixture 验证浏览器流程。仓库不提供压测工具，真实依赖联调需另行准备。</p></div>
+<div><h3>依赖方向</h3><p>业务 Service 通过仓储接口访问数据。异步链路从事务提交后分叉，不要求用户请求等待通知或索引处理完成。</p></div>
+</aside>
+</div>
+<div class="note">架构判断：根据目录、构建入口与进程职责，可将当前后端理解为“按业务模块组织的应用 + 独立异步进程”。这些逻辑层不等同于独立部署的微服务。</div>
+</section>
+<section id="stack">
+<h2><span class="index">02</span>技术栈清单</h2>
+<p class="intro">版本来自仓库声明。Go 库取自 go.mod，前端依赖取自 package.json，基础服务取自根 Compose 的固定镜像，Nginx 取自前端 Dockerfile。这些值不代表已运行环境的实际版本。</p>
+<div class="panel scroll"><table><caption style="text-align:left;padding:16px 18px;font-weight:600">应用与数据技术</caption><thead><tr><th scope="col">领域</th><th scope="col">技术 / 声明版本</th><th scope="col">项目中的职责</th><th scope="col">依据</th></tr></thead><tbody>
+<tr><td>前端语言与框架</td><td>TypeScript 6.0.3<br>Vue 3.5.42 · Vue Router 4.6.4</td><td>用户页面、组件、路由守卫和响应式状态</td><td><a href="../frontend/web/package.json">package.json</a></td></tr>
+<tr><td>前端构建</td><td>Vite 8.3.8 · @vitejs/plugin-vue 6.0.8<br>vue-tsc 3.3.11</td><td>开发服务、类型检查和静态产物构建</td><td><a href="../frontend/web/package.json">package.json</a></td></tr>
+<tr><td>后端语言与 HTTP</td><td>Go 1.26 · Gin 1.12.0<br>OpenAPI 3.1.0</td><td>业务 API、路由、中间件和接口契约</td><td><a href="../backend/business/go.mod">go.mod</a> · <a href="../backend/business/api/openapi.yaml">OpenAPI</a></td></tr>
+<tr><td>认证与密码</td><td>JWT HS256（标准库实现）<br>bcrypt（golang.org/x/crypto 0.54.0）</td><td>签发和校验令牌；Cookie 设置 HttpOnly、SameSite=Lax，Secure 由配置控制；bcrypt 处理密码哈希</td><td><a href="../backend/business/internal/modules/auth/token.go">token.go</a> · <a href="../backend/business/internal/transport/http/handlers/auth/cookie.go">cookie.go</a> · <a href="../backend/business/internal/modules/auth/password.go">password.go</a></td></tr>
+<tr><td>业务数据库</td><td>MySQL 8.4.13<br>go-sql-driver/mysql 1.10.0</td><td>通过 database/sql 和显式 SQL 读写业务事实、Outbox 与异步状态</td><td><a href="../compose.yml">Compose</a> · <a href="../backend/business/internal/platform/mysql.go">MySQL 连接</a></td></tr>
+<tr><td>数据库迁移</td><td>golang-migrate/migrate 4.19.1</td><td>迁移校验、状态查看与数据库结构升级</td><td><a href="../backend/business/go.mod">go.mod</a> · <a href="../backend/business/cmd/migrate/">migrate</a></td></tr>
+<tr><td>缓存</td><td>Redis 7.2.17-alpine<br>go-redis/v9 9.22.0</td><td>帖子正文缓存；支持版本与恢复相关处理；参与请求限流</td><td><a href="../backend/business/internal/platform/postcache/">正文缓存</a> · <a href="../backend/business/internal/platform/ratelimit/">限流</a></td></tr>
+<tr><td>消息中间件</td><td>RabbitMQ 4.3.7-alpine<br>amqp091-go 1.14.0</td><td>业务与搜索消息分发；独立消费队列、重试队列和死信队列</td><td><a href="../backend/business/internal/platform/rabbitmq/rabbitmq_topology.go">消息拓扑</a></td></tr>
+<tr><td>全文搜索</td><td>Elasticsearch 9.5.2<br>go-elasticsearch/v9 9.5.0</td><td>搜索查询、异步索引更新与索引重建</td><td><a href="../backend/business/internal/modules/search/">search</a> · <a href="../compose.yml">Compose</a></td></tr>
+<tr><td>Web 入口</td><td>Nginx 1.30.6-alpine</td><td>托管静态前端，将 /api/ 代理到 api:8080；终止 TLS，支持 SPA 路由回退</td><td><a href="../deploy/nginx/default.conf.template">nginx.conf</a></td></tr>
+</tbody></table></div>
+<div class="panel scroll"><table><caption style="text-align:left;padding:16px 18px;font-weight:600">工程、部署与验证</caption><thead><tr><th scope="col">能力</th><th scope="col">技术 / 版本</th><th scope="col">职责与范围</th></tr></thead><tbody>
+<tr><td>本地工具链</td><td>Go 1.26 · Node.js ≥24.20.0<br>Python 3 · npm · Make</td><td>前端运行要求见 <a href="../frontend/web/package.json">package.json</a>；Python 和 Node.js 执行 CI 工具测试，Go lint 版本见 <a href="../tools/ci/toolchains.json">toolchains.json</a></td></tr>
+<tr><td>构建与容器</td><td>Docker 多阶段构建<br>Go 1.26.9-alpine3.23 / Node.js 24.20.0-alpine3.23<br>Alpine 3.23.8 后端运行镜像</td><td>构建 gopulse/backend 与 gopulse/web 两个镜像；后端镜像包含三个常驻进程及迁移、索引重建和管理员维护命令</td></tr>
+<tr><td>部署编排</td><td>Docker Compose v2 或更新版本，支持 up --wait</td><td>单机入口为根 <a href="../compose.yml">compose.yml</a>，步骤见 <a href="../deploy/README.md">部署说明</a>；仓库不维护 Kubernetes 部署入口</td></tr>
+<tr><td>后端检查</td><td>Go testing · go test -race · go vet<br>golangci-lint 2.14.0</td><td>模块单测、竞态检测、静态检查与构建；CI 按文件变化选择 Go 模块</td></tr>
+<tr><td>前端检查</td><td>Vitest 4.1.12 · Playwright 1.62.1<br>vue-tsc 3.3.11</td><td>单元测试、类型检查、生产构建和隔离浏览器流程；由独立前端工作流检查</td></tr>
+<tr><td>集成验证</td><td>Go integration 构建标签 · 隔离依赖环境</td><td>真实数据库、搜索和异步通知联调需单独准备环境。仓库不提供压测工具，历史压测资料不能作为可执行入口</td></tr>
+<tr><td>持续集成</td><td>GitHub Actions · Python / Node.js CI 工具</td><td>执行提交规范校验、CI 工具回归，以及选中 Go 模块的检查、测试和构建；满足条件后自动创建 PR</td></tr>
+<tr><td>运行时诊断</td><td>Go log/slog · JSON 日志 · HTTP 探针</td><td>internal/logging 输出日志，internal/platform 提供健康检查，各命令处理信号与退出。旧 runtimekit、业务指标接口、采集任务和链路追踪已移除</td></tr>
+</tbody></table></div>
+</section>
+<section id="flows">
+<h2><span class="index">03</span>三条核心链路</h2>
+<p class="intro">读请求、事务写入和后台处理承担不同职责。MySQL 保存业务事实，缓存和搜索索引服务各自的读取场景。</p>
+<div class="cards">
+<article class="card"><h3>同步读取</h3><div class="flow"><span class="node">Vue / Fetch</span><span class="arrow" aria-hidden="true">→</span><span class="node">Nginx</span><span class="arrow" aria-hidden="true">→</span><span class="node hot">Gin / Service</span></div><ol><li>前端请求 <code>/api/v1</code>，代理将请求交给 API。</li><li>中间件处理认证和请求保护，Handler 调用业务 Service。</li><li>仓储从 MySQL 读取事实；帖子正文读取可使用 Redis 缓存。缓存重建由有界协调器管理。</li></ol></article>
+<article class="card"><h3>事务写入与消息分发</h3><div class="flow"><span class="node">业务写入</span><span class="arrow" aria-hidden="true">→</span><span class="node hot">MySQL + Outbox</span><span class="arrow" aria-hidden="true">→</span><span class="node">RabbitMQ</span></div><ol><li>以帖子写入为例，仓储在同一数据库事务内保存业务事实与 Outbox 事件。</li><li>API 内 Dispatcher 领取待处理记录并发布消息；分发具有租约、超时和重试控制。</li><li>Worker 处理异步业务和通知；Indexer 更新 Elasticsearch。重试与死信队列保留失败处理路径。</li></ol><p>事务提交与消息消费分属不同阶段，不能将其视为跨 MySQL、RabbitMQ 和 Elasticsearch 的单一原子事务。</p></article>
+<article class="card"><h3>搜索查询与索引维护</h3><div class="flow"><span class="node">Search API</span><span class="arrow" aria-hidden="true">→</span><span class="node hot">Elasticsearch</span></div><div class="flow"><span class="node">MySQL 事实</span><span class="arrow" aria-hidden="true">→</span><span class="node">Indexer / Reindex</span><span class="arrow" aria-hidden="true">→</span><span class="node hot">搜索索引</span></div><ol><li>查询通过搜索 Service 访问 Elasticsearch，并执行可见性相关处理。</li><li>在线变更由 RabbitMQ 消息驱动 Indexer 更新索引。</li><li><code>search-reindex</code> 根据数据库事实重建索引。搜索投影可能晚于业务事务提交。</li></ol></article>
+</div>
+</section>
+<section id="modules">
+<h2><span class="index">04</span>代码模块与运行进程</h2>
+<p class="intro">根 Makefile 是模块注册来源。一个模块可以构建多个进程。根 Compose 包含 10 个服务容器：8 个常驻服务和 2 个一次性初始化任务；API、Worker 和 Indexer 各运行一个容器。</p>
+<div class="panel scroll"><table><thead><tr><th scope="col">目录</th><th scope="col">边界与职责</th><th scope="col">主要入口 / 产物</th></tr></thead><tbody>
+<tr><td><code>frontend/web/</code></td><td>用户端 npm 模块，包含页面、组件、composables、HTTP 客户端与类型定义</td><td>Vite 开发服务；由 Nginx 托管的静态构建产物</td></tr>
+
+<tr><td><code>backend/business/</code></td><td>业务 Go 模块；module 名称保持为 <code>github.com/Ray-ymq/GoPulse/backend</code></td><td>常驻：<code>server</code>、<code>business-worker</code>、<code>search-indexer</code><br>按需：<code>migrate</code>、<code>search-reindex</code>、<code>admin-role</code></td></tr>
+
+
+
+<tr><td><code>tools/ci/</code> · <code>tools/make/</code></td><td>共享 CI 脚本和构建规则，未注册为独立 Go 模块</td><td>模块选择、提交校验、自动 PR 回归与 Makefile 片段</td></tr>
+<tr><td><code>deploy/</code></td><td>部署说明与 Nginx 模板</td><td>根 compose.yml 编排服务；Dockerfile 和专用忽略文件位于 backend/business 与 frontend/web</td></tr>
+</tbody></table></div>
+</section>
+<section id="boundaries">
+<h2><span class="index">05</span>理解架构时需要保留的边界</h2>
+<div class="boundary">
+<article><h3>目录分层与调用分层各有用途</h3><p>目录按前端、后端、工具和部署划分。HTTP Handler 位于 transport/http，业务包内部组织 Service、Repository 与模型。六层视图用于解释职责和链路，不表示仓库已经采用严格的六级目录或完整的 DDD 分层约束。</p></article>
+<article><h3>业务事实与派生数据分别维护</h3><p>MySQL 保存业务事实；Redis 缓存和 Elasticsearch 索引由相应机制维护。Outbox、消费重试、businessstate 中的数据 epoch、命令幂等与异步预算共同支撑恢复和异步处理，具体约束以各业务实现为准。</p></article>
+<article><h3>依赖声明需要与实际使用区分</h3><p>go.mod 中仍有 OpenTelemetry、MongoDB 驱动等间接依赖。当前业务说明明确删除了指标采集与链路追踪，部署配置使用 MySQL。仅凭间接依赖不能将这些组件列为已启用的业务基础服务。</p></article>
+<article><h3>版本和部署状态有独立证据</h3><p>本报告记录当前源码声明与默认部署配置。Docker 和 Compose 的宿主工具版本未在此处确定。本次未启动业务服务或容器，也未验证线上拓扑；配置校验不能代替真实部署验证。</p></article>
+</div>
+</section>
+<section id="sources">
+<h2><span class="index">06</span>依据文件与追溯入口</h2>
+<p class="intro">下列链接相对于本 HTML 文件所在的 docs 目录。将文件保留在仓库中即可访问对应来源；单独复制 HTML 后，正文和样式仍可离线查看，仓库链接需要原目录结构。</p>
+<details open><summary>依赖与工具链</summary><ul><li><a href="../backend/business/go.mod">业务依赖</a>、<a href="../frontend/web/package.json">前端依赖与脚本</a></li><li><a href="../tools/ci/toolchains.json">Go lint 工具版本</a>、<a href="../VERSION">产品版本</a></li></ul></details>
+<details><summary>代码与接口契约</summary><ul><li><a href="../frontend/web/src/router.ts">前端路由</a>、<a href="../frontend/web/src/services/http.ts">Fetch 请求封装</a>、<a href="../frontend/web/src/composables/">前端状态与业务组合逻辑</a></li><li><a href="../backend/business/api/openapi.yaml">OpenAPI 契约</a>、<a href="../backend/business/internal/transport/http/">HTTP 接入</a>、<a href="../backend/business/internal/modules/post/">帖子仓储与事务</a></li><li><a href="../backend/business/internal/async/outbox/">Outbox</a>、<a href="../backend/business/internal/async/worker/">Worker</a>、<a href="../backend/business/internal/modules/search/">搜索与索引</a>、<a href="../backend/business/internal/modules/businessstate/">业务状态约束</a></li><li><a href="../backend/README.md">业务进程说明</a>、<a href="index.html">后端浏览器概览</a></li></ul></details>
+<details><summary>构建、部署与验证</summary><ul><li><a href="../Makefile">模块注册与统一命令</a>、<a href="../backend/business/Dockerfile">后端镜像</a>、<a href="../frontend/web/Dockerfile">前端镜像</a></li><li><a href="../compose.yml">单机 Compose</a>、<a href="../deploy/nginx/default.conf.template">Nginx 模板</a>、<a href="../deploy/README.md">部署说明</a></li><li><a href="../tools/ci/CI.md">模块 CI 与提交规范</a>、<a href="../.github/workflows/ci.yml">Go 工作流</a>、<a href="../.github/workflows/frontend.yml">前端工作流</a></li><li>相关资料：<a href="GoPulse 技术栈.md">GoPulse 技术栈</a>、<a href="项目分层说明.md">项目分层说明</a>。本文结合依赖、实现与部署配置解释职责与边界。</li></ul></details>
+</section>
+</main>
+<footer>GoPulse · 技术栈与架构分层 ｜ HTML 内嵌全部样式，无外部字体、脚本或网络资源。可使用浏览器打印功能导出 PDF。</footer>
+</div>
+</body>
+</html>
