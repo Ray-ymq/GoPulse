@@ -4,6 +4,8 @@ GoPulse 后端提供认证、用户资料、关注、帖子、评论、点赞、
 
 模块清单以根 [Makefile](../Makefile) 的 `GO_MODULES` 为准。HTTP 接口以 [OpenAPI](business/api/openapi.yaml) 为准。
 
+浏览器概览见 [后端说明页](../docs/index.html)。配置、迁移、运行与维护步骤以本文为准。
+
 ## 目录树
 
 以下目录树列出主要源码目录与入口，省略具体实现文件和测试文件。
@@ -115,6 +117,12 @@ go run ./cmd/migrate up
 ```
 
 `validate` 校验迁移文件，`status` 查看数据库状态，`up` 执行待应用迁移。`down` 仅用于本地开发，不能代替备份与恢复流程。
+
+迁移 `000022_clarify_async_table_names` 将 `business_environment`、`business_event_requirements` 和 `business_application_results` 分别改名为 `business_runtime_state`、`event_consumer_obligations` 和 `event_consumer_results`，保留数据、索引和约束。升级前停止访问这些表的 API、Worker、Indexer 及维护命令。迁移完成后再启动新程序，旧程序不能与改名后的数据库混用。
+
+本地验证迁移 22 的回滚时，先停止新程序。当前数据库版本为 22 时，执行一次 `down`；版本高于 22 时，先逐步回退后续迁移。完成后再启动匹配旧表名的程序。
+
+迁移 `000023_remove_event_failure_summaries` 删除仅保存重试与死信累计摘要的 `business_event_failures`。需要保留历史摘要时，必须在迁移前备份。升级时先停止旧 Worker，执行迁移后启动新程序。旧 Worker 仍尝试写入该表，不能继续使用。反向迁移仅恢复空表，不恢复历史数据。隔离消息、消费义务、消费结果、容量占用和管理审计继续保留。
 
 ### 常驻进程
 

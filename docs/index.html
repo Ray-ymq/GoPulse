@@ -22,7 +22,7 @@
       <h1>社交业务，从请求到通知。</h1>
       <p class="lead">GoPulse 业务后端提供用户认证、资料、关注、帖子、评论、点赞、收藏、搜索和通知。此页汇总模块结构与操作入口，可直接在浏览器中打开。</p>
       <div class="tags"><span class="tag">Go 1.26</span><span class="tag">MySQL</span><span class="tag">Redis</span><span class="tag">RabbitMQ</span><span class="tag">Elasticsearch</span></div>
-      <p class="note">Go module：<code>github.com/Ray-ymq/GoPulse/backend</code>。HTTP 接口以 <a href="api/openapi.yaml">OpenAPI 契约</a>为准。本页为静态说明，不显示服务实时状态。</p>
+      <p class="note">Go module：<code>github.com/Ray-ymq/GoPulse/backend</code>。HTTP 接口以 <a href="../backend/business/api/openapi.yaml">OpenAPI 契约</a>为准。本页为静态说明，不显示服务实时状态。</p>
     </div>
     <section id="architecture">
       <h2>01 / 数据如何流转</h2>
@@ -41,70 +41,83 @@
       </div>
       <div class="table-wrap">
         <table><caption>目录与维护入口</caption><thead><tr><th scope="col">路径</th><th scope="col">职责</th></tr></thead><tbody>
-          <tr><td><a href="internal/"><code>internal/</code></a></td><td>业务逻辑、数据访问、配置、HTTP、日志与健康检查</td></tr>
-          <tr><td><a href="api/openapi.yaml"><code>api/openapi.yaml</code></a></td><td>HTTP 接口契约</td></tr>
-          <tr><td><a href="migrations/"><code>migrations/</code></a></td><td>SQL 迁移及迁移文件加载</td></tr>
+          <tr><td><a href="../backend/business/internal/"><code>internal/</code></a></td><td>业务逻辑、数据访问、配置、HTTP、日志与健康检查</td></tr>
+          <tr><td><a href="../backend/business/api/openapi.yaml"><code>api/openapi.yaml</code></a></td><td>HTTP 接口契约</td></tr>
+          <tr><td><a href="../backend/business/migrations/"><code>migrations/</code></a></td><td>SQL 迁移及迁移文件加载</td></tr>
           <tr><td><code>cmd/migrate/</code></td><td>校验迁移文件、查看数据库状态、执行迁移</td></tr>
           <tr><td><code>cmd/search-reindex/</code></td><td>初始化或重建搜索索引，执行数据 epoch 恢复准备</td></tr>
-          <tr><td><code>cmd/admin-role/</code></td><td>声明初始超级管理员或提升已有用户角色</td></tr>
+          <tr><td><code>cmd/admin-role/</code></td><td>设置已注册账号为初始超级管理员</td></tr>
         </tbody></table>
       </div>
     </section>
     <section id="directory">
       <h2>目录树与职责</h2>
-      <p>以下列出全部现有目录，展开到业务包及其子包。每行说明该目录的职责，省略目录内的文件。</p>
-      <pre aria-label="business 目录树"><code>backend/business/
-├── api/  HTTP 接口契约；openapi.yaml 定义请求、响应和鉴权约定。
-├── cmd/  可执行命令入口；组装配置、依赖与服务，并处理进程退出。
-│   ├── admin-role/  为已有用户声明初始超级管理员，或提升用户角色。
-│   ├── business-worker/  启动异步业务消费者，处理通知任务。
-│   ├── migrate/  校验迁移文件、查看数据库状态、执行数据库迁移。
-│   ├── search-indexer/  启动搜索消费者，更新 Elasticsearch 索引。
-│   ├── search-reindex/  初始化或重建搜索索引，支持数据 epoch 恢复准备。
-│   └── server/  启动 HTTP API 与 Outbox 分发器。
-├── internal/  模块内部实现，按业务领域和公共能力划分 Go 包。
-│   ├── apperror/  定义稳定的业务错误码及可向客户端返回的错误。
-│   ├── auth/  处理注册、登录、密码校验、会话令牌和 Cookie。
-│   ├── bookmark/  处理帖子收藏与取消收藏，维护收藏数据。
-│   ├── bus/  定义异步事件信封、事件类型、消息校验和准入接口。
-│   ├── businessstate/  维护数据 epoch、命令幂等记录、消费证据及消息准入状态。
-│   ├── comment/  处理帖子评论及评论数据访问。
-│   ├── config/  读取环境变量，设置默认值并校验配置约束。
-│   ├── correlation/  生成、校验并传递处理尝试 ID 与 Outbox 关联信息。
-│   ├── http/  组装 HTTP 路由与处理器，连接请求和业务服务。
-│   │   ├── middleware/  处理身份认证、权限校验、同源写保护、请求日志和过载保护。
-│   │   ├── params/  解析并校验请求中的 ID 参数。
-│   │   ├── request/  解码和校验 JSON 请求体。
-│   │   └── response/  统一输出成功响应与错误响应。
-│   ├── integrationtest/  为集成测试准备依赖环境，并提供 MySQL 测试锁。
-│   ├── like/  处理点赞与取消点赞，维护点赞数据。
-│   ├── logging/  创建和配置 slog JSON 日志。
-│   ├── notification/  处理通知生成、查询、分页和已读状态。
-│   ├── outbox/  持久化事务事件，并将待分发事件发送到消息队列。
-│   ├── platform/  管理 MySQL、Redis、RabbitMQ、Elasticsearch 连接，提供消息拓扑和健康检查。
-│   │   └── redis/  实现 Redis 帖子正文缓存。
-│   ├── post/  处理帖子发布、查询、编辑、删除、分页和正文缓存。
-│   ├── ratelimit/  执行限流，管理限流配额租约。
-│   ├── resourcebudget/  管理本进程的有限并发容量；容量不足时拒绝准入。
-│   ├── search/  处理搜索查询、索引事件和索引重建。
-│   ├── user/  管理用户资料、关注关系、角色与审计数据。
-│   └── worker/  提供通知消费者和搜索消费者共用的消息解码、消费、重试及连接管理逻辑。
-├── migrations/  保存 SQL 迁移，提供迁移文件嵌入、加载、校验及相关测试。
-└── testdata/  保存测试辅助程序；migration-lock.go 用于持有数据库迁移锁。</code></pre>
+      <p>以下列出后端主要源码目录与入口，省略具体实现文件和测试文件。</p>
+      <pre aria-label="后端目录树"><code>backend/
+├── README.md
+└── business/
+    ├── cmd/                         # 进程与维护命令入口
+    │   ├── server/                  # HTTP API 与 Outbox 分发
+    │   ├── business-worker/         # 异步通知消费
+    │   ├── search-indexer/          # 消费消息并更新搜索索引
+    │   ├── search-reindex/          # 索引初始化、重建与恢复准备
+    │   ├── migrate/                 # 数据库迁移
+    │   └── admin-role/              # 初始超级管理员设置
+    ├── internal/
+    │   ├── modules/                 # 业务功能与共享业务契约
+    │   │   ├── auth/                # 认证、密码和令牌
+    │   │   ├── user/                # 用户、资料、关注和角色
+    │   │   ├── post/                # 帖子、命令与可见性
+    │   │   ├── comment/             # 评论
+    │   │   ├── like/                # 点赞关系
+    │   │   ├── bookmark/            # 收藏关系
+    │   │   ├── notification/        # 通知查询与事件投影
+    │   │   ├── search/              # 搜索、索引投影与重建
+    │   │   ├── bus/                 # 事件、准入和处理结果契约
+    │   │   └── businessstate/       # 纪元、命令与持久化一致性状态
+    │   ├── transport/http/          # HTTP 路由组装
+    │   │   ├── handlers/            # 按业务功能划分的 Handler
+    │   │   │   └── admin/           # 账号角色查询与变更
+    │   │   ├── middleware/          # 认证、授权与请求保护
+    │   │   ├── request/             # 请求体解析
+    │   │   ├── response/            # 响应与错误编码
+    │   │   └── params/              # 路径参数解析
+    │   ├── async/
+    │   │   ├── outbox/              # 事务事件写入与可靠分发
+    │   │   └── worker/              # 消费运行、确认与重试
+    │   ├── platform/                # 外部连接、健康检查与技术适配
+    │   │   ├── config/              # 配置读取与校验
+    │   │   ├── redisclient/         # Redis 连接、操作与故障恢复
+    │   │   ├── rabbitmq/            # RabbitMQ 探测、消息发布与拓扑
+    │   │   ├── postcache/           # Redis 帖子正文缓存
+    │   │   ├── ratelimit/           # 请求限流
+    │   │   └── resourcebudget/      # 进程资源预算
+    │   ├── shared/
+    │   │   ├── apperror/            # 应用错误类型
+    │   │   └── correlation/         # 请求与异步处理关联信息
+    │   ├── logging/                 # slog 日志与上下文
+    │   ├── testkit/integrationtest/ # 集成测试支持
+    │   └── architecture_test.go     # 目录与导入约束检查
+    ├── api/openapi.yaml             # HTTP 接口契约
+    ├── migrations/                  # SQL 迁移与迁移文件加载
+    ├── testdata/                    # 测试辅助程序
+    ├── go.mod
+    ├── go.sum
+    └── Makefile                     # 模块检查、测试与构建</code></pre>
       <h3>模块根目录中的文件</h3>
       <div class="table-wrap"><table><caption>模块文件用途</caption><thead><tr><th scope="col">文件</th><th scope="col">用途</th></tr></thead><tbody>
 <tr><td><code>Makefile</code></td><td>定义模块测试、竞态检测、检查和构建目标，由根 Makefile 分发调用。</td></tr>
 <tr><td><code>go.mod / go.sum</code></td><td>声明 Go module、Go 版本和依赖，并记录依赖校验和。</td></tr>
-<tr><td><code>README.md</code></td><td>提供配置、迁移、运行、维护和验证说明。</td></tr>
-<tr><td><code>index.html</code></td><td>本页：可在浏览器中打开的模块概览和目录说明。</td></tr>
+<tr><td><code>Dockerfile</code></td><td>构建业务进程和维护命令镜像。</td></tr>
+<tr><td><code>Dockerfile.dockerignore</code></td><td>限定镜像构建上下文。</td></tr>
       </tbody></table></div>
       <h3>如何阅读业务包</h3>
-      <p>多个业务包将 HTTP 处理放在 <code>handler.go</code>，将业务操作放在 <code>service.go</code>，将数据访问放在 <code>repository.go</code>，将数据结构放在 <code>model.go</code>。各包按实际需要组织文件，并非每个包都包含这些文件。</p>
+      <p>HTTP 适配位于 <code>internal/transport/http/handlers/</code>。业务包位于 <code>internal/modules/</code>，按实际需要用 <code>service*.go</code>、<code>repository*.go</code> 和 <code>model*.go</code> 区分流程、数据访问和模型。</p>
       <p><code>*_test.go</code> 保存测试。带 <code>integration</code> 构建标签的测试需要单独准备依赖环境。<code>cmd/</code> 负责启动和组装；具体业务实现位于 <code>internal/</code>。</p>
     </section>
     <section id="running">
       <h2>03 / 准备与运行</h2>
-      <p>运行前需自行准备 MySQL、Redis、RabbitMQ 和 Elasticsearch，并创建应用使用的数据库与账号。配置示例见根目录 <a href="../../.env.example"><code>.env.example</code></a>。后端只读取进程环境变量，不会自动加载 <code>.env</code>。</p>
+      <p>运行前需自行准备 MySQL、Redis、RabbitMQ 和 Elasticsearch，并创建应用使用的数据库与账号。配置示例见根目录 <a href="../.env.example"><code>.env.example</code></a>。后端只读取进程环境变量，不会自动加载 <code>.env</code>。</p>
       <p>在仓库根目录执行以下命令。配置值含有空格、<code>$</code> 或其他 shell 特殊字符时，需先按 shell 语法正确引用。</p>
       <pre><code>set -a
 . ./.env
@@ -121,7 +134,7 @@ go run ./cmd/migrate up</code></pre>
         <tr><td><code>go run ./cmd/business-worker</code></td><td>健康检查：<code>127.0.0.1:19102</code></td></tr>
         <tr><td><code>go run ./cmd/search-indexer</code></td><td>健康检查：<code>127.0.0.1:19103</code></td></tr>
       </tbody></table></div>
-      <p class="note">首次准备搜索索引时，在已加载配置的模块目录执行 <code>go run ./cmd/search-reindex --if-missing</code>。此命令会检查别名、数据 epoch 和所需映射；当前索引不满足条件时会重建。完整配置约束、恢复参数与角色维护操作见 <a href="README.md">模块 README</a>。</p>
+      <p class="note">首次准备搜索索引时，在已加载配置的模块目录执行 <code>go run ./cmd/search-reindex --if-missing</code>。搜索别名已存在时，该命令跳过重建。需要主动重建时，执行不带 <code>--if-missing</code> 的命令。完整配置约束、恢复参数与角色维护操作见 <a href="../backend/README.md">模块 README</a>。</p>
     </section>
     <section id="validation">
       <h2>04 / 验证与健康检查</h2>
@@ -129,9 +142,9 @@ go run ./cmd/migrate up</code></pre>
 make ci-test MODULE=backend/business
 make ci-build MODULE=backend/business</code></pre><p><code>ci-check</code> 检查格式并运行 go vet 和 lint；<code>ci-test</code> 执行带竞态检测的单元测试；<code>ci-build</code> 构建模块。</p></div>
         <div><h3>健康探针</h3><ul><li><code>/startup</code>：初始化已完成。</li><li><code>/live</code>、<code>/health</code>：进程存活。</li><li><code>/ready</code>：初始化已完成、未进入退出阶段，且必要依赖和状态检查通过。</li></ul><p>探针响应只包含 <code>status</code>。业务进程使用 <code>internal/logging</code> 输出 slog JSON 日志，通过 <code>os/signal</code> 接收退出信号。</p></div></div>
-      <p class="note">Go CI 命令使用 <code>.run/ci/go.work</code>。单元测试与构建结果不能代替真实数据库、搜索和异步任务联调。仓库不提供部署配置、本地开发编排或压测工具。</p>
+      <p class="note">Go CI 命令使用 <code>.run/ci/go.work</code>。单元测试与构建结果不能代替真实数据库、搜索和异步任务联调。单机部署入口为根 <code>compose.yml</code>，操作步骤见 <a href="../deploy/README.md">部署说明</a>。仓库不提供本地开发编排或压测工具。</p>
     </section>
   </main>
-  <footer>GoPulse · 业务后端说明　/　<a href="README.md">模块 README</a>　·　<a href="../../tools/ci/CI.md">CI 与提交规范</a></footer>
+  <footer>GoPulse · 业务后端说明　/　<a href="../backend/README.md">模块 README</a>　·　<a href="../tools/ci/CI.md">CI 与提交规范</a></footer>
 </body>
 </html>
