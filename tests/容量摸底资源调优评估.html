@@ -68,6 +68,7 @@
       </dl>
       <p>本评估依据 2026-11-18 的 <a href="容量摸底测试记录.html">容量摸底测试记录</a> 和当前仓库实现。</p>
       <nav aria-label="报告目录">
+        <a href="#status">实施状态</a>
         <a href="#bottleneck">瓶颈判断</a>
         <a href="#failure-rate">搜索失败率</a>
         <a href="#sizing">资源方案</a>
@@ -75,17 +76,39 @@
       </nav>
     </header>
 
+    <section id="status">
+      <h2>一、实施状态</h2>
+      <p>本轮执行了静态数据核算、仓库实现检查、资源预算检查和 HTML 验证。没有修改 Compose、MySQL、Redis 或 Elasticsearch 的运行配置。以下配置仍属于复测档位。</p>
+      <div class="table-wrap" tabindex="0" role="region" aria-labelledby="status-caption">
+        <table>
+          <caption id="status-caption">评估方案的当前状态</caption>
+          <thead>
+            <tr><th scope="col">项目</th><th scope="col">状态</th><th scope="col">证据或后续动作</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">压测数据和失败率计算</th><td>已完成</td><td>已核对 503、请求错误、P50、P95、P99 和资源预算。</td></tr>
+            <tr><th scope="row">当前配置缺口检查</th><td>已完成</td><td>已核对 Compose、.env.example、搜索实现、缓存实现和 MySQL 查询。</td></tr>
+            <tr><th scope="row">Elasticsearch 4→6 vCPU、6 GiB 复测</th><td>未完成</td><td>需要保存渲染后的 Compose、容器实际配额和节点统计。</td></tr>
+            <tr><th scope="row">MySQL 128 MiB→2 GiB 对照</th><td>未完成</td><td>当前 Compose 没有 buffer pool 配置入口，需要先补充复测配置。</td></tr>
+            <tr><th scope="row">Redis 热点命中和 AOF 观察</th><td>未完成</td><td>当前应用缓存观测回调为空，需要采集命中、未命中和错误。</td></tr>
+            <tr><th scope="row">生产配置验收</th><td>待定义</td><td>需要先确定各接口错误率、P95、P99 和资源余量目标。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">本报告的“建议配置”不表示已经完成真实压测或已部署。当前数据不能确认帖子搜索的实际失败率。</p>
+    </section>
+
     <section id="bottleneck">
-      <h2>一、瓶颈判断</h2>
+      <h2>二、瓶颈判断</h2>
       <p>资源上限测试提高了 API 的 HTTP 并发和读资源预算。256 并发持续 30 秒，记录约 1,700 个 HTTP 响应每秒，其中 HTTP 200 每秒约 1,538 个。标准容量测试在 128 并发时记录约 997 req/s、P95 66.0 ms，2,000 个请求全部成功。现阶段保留标准测试给出的单实例 128 并发、约 1,000 req/s 保守基线。两档测试的配置和时长不同。</p>
       <p>Elasticsearch 持续触及 4 vCPU 配额，随后帖子搜索出现 <code>search_unavailable</code>。同轮 API CPU 约 102%（配额 2 vCPU），MySQL 约 317%（配额 4 vCPU），Redis 约 4%（配额 0.5 vCPU）。Elasticsearch 单节点 CPU 饱和是最符合现有数据的首要解释。原记录缺少 CPU 节流、搜索线程池排队和拒绝、GC 及磁盘读取的同步数据，排队、查询本身开销和各段超时的贡献仍待确认。</p>
-      <p>当前 Compose 运行单节点 Elasticsearch。帖子索引的默认定义为 1 个主分片、0 个副本。当前 API 的请求上下文时限为 1,500 ms。Compose 的 Elasticsearch 客户端默认时限为 3 s，但调用仍受上游 API 时限约束。P95 为 P50 的约 1,072 倍（1,500.4 ÷ 1.4），P99 为 1,501.3 ms。这表明混合流量的尾延迟集中在 API 时限附近。总体百分位无法确定慢请求所属接口、失败比例或 Elasticsearch 的排队时间。<a href="../compose.yml">Compose 配置</a> · <a href="../backend/business/internal/modules/search/contract.go">索引定义</a> · <a href="../backend/business/internal/transport/http/router.go">API 时限</a> · <a href="../backend/business/internal/platform/elasticsearch.go">Elasticsearch 客户端</a></p>
+      <p>当前根 Compose 的 Elasticsearch 配置是 2 GiB 容器上限和 1 GiB heap。历史压测记录使用 3 GiB 内存配额。两者属于不同配置档位。帖子索引的默认定义为 1 个主分片、0 个副本。当前 API 的请求上下文时限为 1,500 ms。Compose 的 Elasticsearch 客户端默认时限为 3 s，但调用仍受上游 API 时限约束。P95 为 P50 的约 1,072 倍（1,500.4 ÷ 1.4），P99 为 1,501.3 ms。这表明混合流量的尾延迟集中在 API 时限附近，但不能单独证明 Elasticsearch 返回了错误。总体百分位无法确定慢请求所属接口、失败比例或 Elasticsearch 的排队时间。<a href="../compose.yml">Compose 配置</a> · <a href="../backend/business/internal/modules/search/contract.go">索引定义</a> · <a href="../backend/business/internal/transport/http/router.go">API 时限</a> · <a href="../backend/business/internal/platform/elasticsearch.go">Elasticsearch 客户端</a></p>
       <p>帖子搜索先解析索引代次，首次查询打开 PIT（时间点快照），再执行 Elasticsearch 查询并从 MySQL 补全返回结果。用户搜索查询 MySQL。<code>search_unavailable</code> 也可出现在索引代次解析或打开 PIT 等阶段。复测应按接口和阶段定位开销。<a href="../backend/business/internal/modules/search/service.go">帖子搜索服务</a> · <a href="../backend/business/internal/modules/user/repository_profile.go">用户搜索查询</a></p>
     </section>
 
     <section id="failure-rate">
-      <h2>二、搜索失败率</h2>
-      <p>原记录列出 46,144 个 HTTP 200、4,864 个 HTTP 503 和 256 个请求错误。前两项正好合计 51,008，503 占 HTTP 响应的 <strong>9.54%</strong>。若 256 个请求错误都是另外发出且未获得 HTTP 响应的请求，则总尝试数为 51,264，整体失败率为 <code>(4,864 + 256) ÷ 51,264 ≈ 9.99%</code>。需要原始记录确认这 256 条的统计口径和接口归属。</p>
+      <h2>三、搜索失败率</h2>
+      <p>原记录列出 46,144 个 HTTP 200、4,864 个 HTTP 503 和 256 个请求错误。前两项正好合计 51,008，503 占 HTTP 响应的 <strong>9.54%</strong>。若 256 个请求错误都是另外发出且未获得 HTTP 响应的请求，则总尝试数为 51,264，整体失败率为 <code>(4,864 + 256) ÷ 51,264 ≈ 9.99%</code>。原记录没有说明 256 条是否与 HTTP 结果重复计数，也没有说明接口归属。需要从原始压测结果确认统计口径。</p>
       <p>以下按相同 HTTP 响应口径推算。若 4,864 个 503 全部来自帖子搜索，则帖子搜索的 503 占比等于 <code>4,864 ÷ 帖子搜索的 HTTP 响应数</code>。四种接口参与混合压测，实际请求构成需要由记录确认。</p>
       <div class="table-wrap" tabindex="0" role="region" aria-labelledby="scenario-caption">
         <table>
@@ -106,24 +129,40 @@
     </section>
 
     <section id="sizing">
-      <h2>三、资源方案</h2>
+      <h2>四、资源方案</h2>
       <h3>Elasticsearch · 先测 CPU，再验证 6 GiB 内存</h3>
       <ul>
-        <li>先保持实测基线的堆和容器内存不变。在主机有 CPU 余量的隔离环境中，将 Elasticsearch 配额从 4 vCPU 调到 6 vCPU，观察同负载下的搜索成功吞吐、尾延迟和 CPU 节流是否改善。同时用阶段耗时确认查询、PIT 或 MySQL 回填的开销。</li>
-        <li>当前根 Compose 配置为 2 GiB 容器上限、1 GiB 堆。历史测试使用 3 GiB 容器上限，实际堆大小需要在复测基线中核对。6 GiB 容器配 3 GiB 堆符合 Elastic 的 50% 堆上限建议。剩余 3 GiB 由页缓存、JVM 非堆内存、直接缓冲区等共同使用。记录中的 1.68 GiB 是采样值。若采样来自 Linux 的 <code>docker stats</code>，显示值还会扣除部分文件缓存，需同时检查容器内存与文件缓存指标。<a href="../compose.yml">Compose 配置</a> · <a href="https://www.elastic.co/docs/reference/elasticsearch/jvm-settings">Elastic JVM 设置</a> · <a href="https://docs.docker.com/reference/cli/docker/container/stats/">Docker stats 口径</a></li>
-        <li>固定 CPU，将容器上限提高到 6 GiB 并保留基线堆，验证文件缓存增加是否降低磁盘读取并改善搜索。若堆使用率持续偏高，或出现较长的 GC 停顿、堆内存相关熔断，再在相同 6 GiB 上限下对照 3 GiB 堆。如果主要证据仍指向 CPU 节流，优先缩减单次查询成本或提高 CPU 配额。为帖子搜索设置独立的并发预算也值得验证，目的是在搜索超载时保护其他读接口。<a href="https://www.elastic.co/docs/deploy-manage/production-guidance/optimize-performance/search-speed">Elastic 搜索性能调优</a></li>
+        <li>先重建历史档位。使用 4 vCPU、3 GiB 容器内存，并保存实际生效的 heap。然后单独把 CPU 调到 6 vCPU，保持内存和 heap 不变，观察成功吞吐、尾延迟和 CPU 节流。</li>
+        <li>再固定 CPU，分别对照 6 GiB 容器配 1 GiB heap 和 6 GiB 容器配 3 GiB heap。6 GiB 容器配 3 GiB heap 将 heap 控制在容器内存的 50%。剩余空间由文件系统缓存、JVM 非堆内存、直接缓冲区和其他开销共享。记录中的 1.68 GiB 是采样值。若采样来自 Linux 的 <code>docker stats</code>，显示值会扣除部分文件缓存，需同步检查容器内存、文件缓存和 cgroup 内存事件。</li>
+        <li>每档先执行帖子搜索单接口阶梯测试，再执行四类接口混合测试。记录索引代次解析、PIT 打开、查询和 MySQL 回填耗时。记录 <code>search</code>、<code>search_coordination</code> 队列与拒绝、GC、PIT 数量、磁盘读取、CPU 节流和 OOM。CPU 增加只能验证节流影响，不能保证 P95 自动下降。<a href="../compose.yml">Compose 配置</a> · <a href="https://www.elastic.co/docs/reference/elasticsearch/jvm-settings">Elastic JVM 设置</a> · <a href="https://docs.docker.com/reference/cli/docker/container/stats/">Docker stats 口径</a> · <a href="https://www.elastic.co/docs/deploy-manage/production-guidance/optimize-performance/search-speed">Elastic 搜索性能调优</a></li>
       </ul>
+      <div class="table-wrap" tabindex="0" role="region" aria-labelledby="es-matrix-caption">
+        <table>
+          <caption id="es-matrix-caption">Elasticsearch 单变量复测矩阵</caption>
+          <thead><tr><th scope="col">阶段</th><th scope="col">CPU</th><th scope="col">容器内存</th><th scope="col">heap</th><th scope="col">目的</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">历史档位重现</th><td>4 vCPU</td><td>3 GiB</td><td>核对实际值</td><td>重建历史结果</td></tr>
+            <tr><th scope="row">CPU 对照</th><td>6 vCPU</td><td>3 GiB</td><td>保持基线</td><td>验证 CPU 饱和影响</td></tr>
+            <tr><th scope="row">文件缓存对照</th><td>4 vCPU</td><td>6 GiB</td><td>1 GiB</td><td>验证文件缓存影响</td></tr>
+            <tr><th scope="row">heap 对照</th><td>4 vCPU</td><td>6 GiB</td><td>3 GiB</td><td>验证 heap 和 GC 影响</td></tr>
+            <tr><th scope="row">综合档位</th><td>6 vCPU</td><td>6 GiB</td><td>3 GiB</td><td>验证目标方案</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><code>docker compose config</code>、<code>docker inspect</code>、<code>docker stats --no-stream</code>、<code>/_nodes/stats/process,jvm,thread_pool,indices,fs</code>、<code>/_nodes/hot_threads?threads=10</code> 和 <code>/_cluster/pending_tasks</code> 应在每档保存。</p>
 
       <h3>Redis · 提高缓存收益，保留 256 MiB 测试配额</h3>
       <ul>
-        <li>约 3.5 MiB 是容器采样值，占 256 MiB 测试配额约 1.37%。优化目标是减少 MySQL 回源和详情延迟。当前 Redis 缓存帖子正文，默认 TTL 为 5 分钟。缓存命中后仍查询可见性和动态数据。帖子搜索不经正文缓存。原测试关闭了业务限流，需在复测中恢复生产限流，覆盖限流键和正文缓存同时使用的情况。<a href="../compose.yml">Compose 配置</a> · <a href="../backend/business/internal/modules/post/service.go">帖子详情实现</a></li>
-        <li>用相同的热点分布对照冷缓存和热缓存。统计应用侧正文命中、未命中和错误，以及每次详情请求的 MySQL 正文查询次数和 P95。同步记录 Redis 的 <code>used_memory</code>、<code>used_memory_rss</code>、<code>evicted_keys</code>、<code>expired_keys</code>、命令延迟和 AOF 重写时的内存峰值。若正文键频繁过期且重复访问率高，再单独测试延长 TTL。保留版本化键和可见性查询。<a href="https://redis.io/docs/latest/commands/info/">Redis INFO 指标</a></li>
-        <li>当前 Compose 启用 AOF。若需要设置 <code>maxmemory</code>，根据实测为 AOF 缓冲和重写额外占用留空间。正文缓存和限流键共用 Redis 时，避免启用可能清除限流键的全局淘汰策略。若搜索词重复率高且 Elasticsearch 调用成本仍高，再评估短 TTL 的热门搜索缓存，先验证删除和可见性变更、索引代次和 PIT 分页的一致性。<a href="https://redis.io/docs/latest/develop/reference/eviction/">Redis 淘汰策略</a></li>
+        <li>约 3.5 MiB 是历史压测采样值，占 256 MiB 压测配额约 1.37%。当前根 Compose 没有 Redis 的 <code>mem_limit</code>、<code>maxmemory</code> 或 <code>maxmemory-policy</code>。Redis 只启用 AOF 和密码。优化目标是确认缓存收益，不是仅按低内存使用量扩容。</li>
+        <li>Redis 同时存储帖子正文缓存和共享限流状态。正文缓存键包含数据代次、帖子 ID 和内容版本，默认 TTL 为 5 分钟，并带有 TTL 抖动。帖子详情命中正文缓存后仍需要读取查看者投影或动态数据。帖子搜索不使用正文缓存。当前缓存 hit、miss 和 error 的观测回调为空，不能直接确认缓存收益。<a href="../backend/business/internal/platform/postcache/post_body.go">缓存实现</a> · <a href="../backend/business/internal/modules/post/service.go">帖子详情实现</a></li>
+        <li>保持 256 MiB，先对照冷缓存和热缓存。记录应用侧正文 hit、miss、error、MySQL 回源次数和详情 P95。同步记录 <code>used_memory</code>、<code>used_memory_rss</code>、<code>evicted_keys</code>、<code>expired_keys</code>、<code>keyspace_hits</code>、<code>keyspace_misses</code>、命令延迟、客户端连接数和 AOF 重写峰值。只有在命中率、淘汰或内存压力数据支持时，才评估增加 <code>maxmemory</code>。<a href="https://redis.io/docs/latest/commands/info/">Redis INFO 指标</a></li>
+        <li>正文缓存和限流状态共用 Redis 时，不能直接采用可能淘汰限流键的全局策略。需要拆分 Redis 实例，或在复测中证明淘汰不会破坏限流正确性。Redis 优化不会直接降低 Elasticsearch 搜索 CPU。<a href="https://redis.io/docs/latest/develop/reference/eviction/">Redis 淘汰策略</a></li>
       </ul>
 
       <h3>MySQL · 从 128 MiB 对照到 2 GiB</h3>
-      <p>MySQL 8.4 默认缓冲池为 128 MiB，实测起点应以 <code>SELECT @@innodb_buffer_pool_size</code> 为准。原记录显示业务表约 345 MiB、MySQL 内存约 500 MiB、慢查询数为 0。缓冲池增加可能减少反复读取数据页和索引页。现有记录缺少缓冲池未命中、磁盘读取延迟和 SQL 执行分布，无法估计收益。<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-init-startup-configuration.html">MySQL 缓冲池配置</a></p>
-      <p>建议在 3.5 GiB 测试容器配额内，先对照 512 MiB 或 1 GiB，再测试 2 GiB。2 GiB 约占容器配额的 57%，名义上剩余 1.5 GiB，供 InnoDB 其他开销、连接缓冲和临时表等使用。每档预热后，比较 <code>ΔInnodb_buffer_pool_reads ÷ ΔInnodb_buffer_pool_read_requests</code>、每秒未命中读、磁盘读取延迟，以及时间线、用户搜索和帖子搜索回填的延迟。若 512 MiB 或 1 GiB 已获得相近收益，采用较小档位。使用混合读写验证内存峰值和连接池等待。<a href="https://dev.mysql.com/doc/refman/8.4/en/server-status-variables.html">MySQL 状态变量</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/memory-use.html">MySQL 内存使用</a></p>
+      <p>MySQL 8.4 默认缓冲池为 128 MiB。当前根 Compose 没有 <code>innodb_buffer_pool_size</code> 配置，也没有挂载 MySQL 配置文件。实际起点应先执行 <code>SELECT @@innodb_buffer_pool_size, @@innodb_buffer_pool_instances, @@max_connections</code>。原记录显示业务表约 345 MiB、MySQL 内存约 500 MiB、慢查询数为 0。缓冲池增加可能减少反复读取数据页和索引页，但现有记录缺少缓冲池未命中、磁盘读取延迟和 SQL 执行分布。<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-init-startup-configuration.html">MySQL 缓冲池配置</a></p>
+      <p>在相同 3.5 GiB MySQL 压测配额内，依次对照 128 MiB、512 MiB、1 GiB 和 2 GiB。2 GiB 约占配额的 57.1%。InnoDB 还会为控制结构和其他缓冲区占用额外内存，不能只用 3.5 GiB 减去 2 GiB 估算剩余空间。每档记录进程 RSS、cgroup <code>memory.current</code>、连接数、临时表峰值、<code>Innodb_buffer_pool_read_requests</code>、<code>Innodb_buffer_pool_reads</code>、<code>Innodb_buffer_pool_wait_free</code>、pages data/free/dirty、磁盘读取、<code>Threads_running</code>、连接池等待和 SQL digest。若 512 MiB 或 1 GiB 已获得相近收益，采用较小档位。使用混合读写验证冷启动、内存峰值和连接等待。<a href="https://dev.mysql.com/doc/refman/8.4/en/server-status-variables.html">MySQL 状态变量</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/memory-use.html">MySQL 内存使用</a></p>
+      <p class="note">2 GiB 方案尚未落地。需要通过 Compose 参数或 <code>/etc/mysql/conf.d</code> 配置文件注入，并在启动后核对实际生效值。</p>
 
       <h3>同机内存预算</h3>
       <div class="table-wrap" tabindex="0" role="region" aria-labelledby="memory-caption">
@@ -144,17 +183,17 @@
     </section>
 
     <section id="retest">
-      <h2>四、复测与上线条件</h2>
+      <h2>五、复测与上线条件</h2>
       <ol>
         <li><strong>建立可比基线。</strong> 固定 4 倍数据、镜像版本、索引、搜索词和分页分布、负载配比及 API 并发预算。先按已记录条件重建资源上限测试，再按目标生产配置测试。原记录未给出搜索词和流量配比，复测应记录实际发出的各接口请求数。可用固定到达率对照过载场景，并单独记录压测端未发出的迭代。<a href="性能测试层级.md">仓库性能测试层级</a> · <a href="https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/">k6 负载模型</a> · <a href="https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/dropped-iterations/">k6 未发出的迭代</a></li>
         <li><strong>按接口记录结果。</strong> 分别统计时间线、帖子详情、帖子搜索和用户搜索的发起数、有效成功数、HTTP 状态、业务错误码及客户端超时或传输错误。校验响应正确性。分别输出成功请求和全部有耗时样本的 P50、P95、P99。失败率用失败数除以同一接口的实际发起数，并核对各结果分类的计数总和。</li>
         <li><strong>同步定位瓶颈。</strong> 记录 Elasticsearch 容器 CPU 节流、线程池 <code>search</code> 和 <code>search_coordination</code> 的队列与拒绝增量、GC、PIT 打开数、内存和磁盘读取情况。记录 API 中索引代次解析、打开 PIT、执行查询和 MySQL 回填各段耗时。用同一时间轴对齐这些指标和错误。Redis 和 MySQL 使用各自方案列出的指标。<a href="https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-nodes-stats">Elasticsearch 节点统计</a> · <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html">Linux cgroup v2 指标</a></li>
-        <li><strong>逐项改变变量。</strong> 先做帖子搜索单接口阶梯加压，再做混合流量。按 CPU 配额、Elasticsearch 容器内存、JVM 堆、MySQL 缓冲池、Redis 缓存策略的顺序单项对照。覆盖基线附近和历史饱和区间。区分冷启动与预热后结果，重复测试，并增加稳态和含索引写入的场景。</li>
+        <li><strong>逐项改变变量。</strong> 按以下顺序执行，每轮只改变一个变量。历史基线 → Elasticsearch 增加 2 vCPU → Elasticsearch 6 GiB 容器 → Elasticsearch 3 GiB heap → MySQL 512 MiB → 1 GiB → 2 GiB → Redis 热缓存和 AOF 观察。覆盖基线附近和历史饱和区间。区分冷启动与预热后结果，重复测试，并增加稳态和含索引写入的场景。</li>
         <li><strong>按成功吞吐验收。</strong> 采用能在目标流量下满足各接口错误率与尾延迟目标、且有稳定 CPU 和内存余量的最小档位。若帖子搜索仍出现成片的 <code>search_unavailable</code> 或挤占其他读接口，保留原容量基线。原记录未定义生产错误率和延迟目标，应在复测前确定。单节点容量提升后，节点故障仍会影响帖子搜索。若要消除单点故障，需要另行验证跨故障域部署和副本。</li>
       </ol>
     </section>
 
-    <footer>本文各配置档位为复测方案。容量结论适用于原记录的测试范围。</footer>
+    <footer>本文各配置档位为复测方案。本轮未重新执行真实压测，也未修改运行配置。容量结论适用于原记录的测试范围。</footer>
   </main>
 </body>
 </html>
