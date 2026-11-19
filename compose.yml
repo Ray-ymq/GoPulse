@@ -223,7 +223,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置 MYSQL_ROOT_PASSWORD}
     command:
-      - --innodb-buffer-pool-size=1.5G
+      - --innodb-buffer-pool-size=1536M
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -244,10 +244,13 @@ services:
     mem_limit: 2g
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-1800mb}
     command:
       - /bin/sh
       - -ec
-      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+      - >-
+        exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        --maxmemory "$${REDIS_MAXMEMORY:-1800mb}"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -281,7 +284,7 @@ services:
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms2.5g -Xmx2.5g
+      ES_JAVA_OPTS: -Xms2560m -Xmx2560m
     ulimits:
       nofile:
         soft: 65535
