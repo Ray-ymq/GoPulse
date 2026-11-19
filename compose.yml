@@ -245,12 +245,14 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-1800mb}
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-allkeys-lru}
     command:
       - /bin/sh
       - -ec
       - >-
         exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
         --maxmemory "$${REDIS_MAXMEMORY:-1800mb}"
+        --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-allkeys-lru}"
     volumes:
       - redis-data:/data
     healthcheck:
