@@ -52,6 +52,28 @@ make container-up
 
 `container-build` 只构建两个项目镜像，不要求配置运行凭据或提供证书。`container-config` 只校验 Compose 配置，不会输出解析后的敏感值。启动前仍需确认凭据、证书文件和主机资源已准备好。
 
+## 容量复测覆盖配置
+
+默认 `compose.yml` 保持当前运行配置。容量复测可以显式追加覆盖文件。`compose.capacity-es.yml` 将 Elasticsearch 设置为 6 vCPU、6 GiB 内存和 3 GiB heap。`compose.capacity-cache-db.yml` 将 MySQL 设置为 3.5 GiB 容器上限和 2 GiB InnoDB buffer pool，并将 Redis 设置为 256 MiB 容器上限、200 MiB `maxmemory` 和 `noeviction` 策略。
+
+先渲染并检查覆盖配置：
+
+```sh
+docker compose -f compose.yml \
+  -f compose.capacity-es.yml \
+  -f compose.capacity-cache-db.yml config --quiet
+```
+
+确认主机内存、凭据、证书和测试数据已准备好后，再显式启动覆盖配置：
+
+```sh
+docker compose -f compose.yml \
+  -f compose.capacity-es.yml \
+  -f compose.capacity-cache-db.yml up -d
+```
+
+覆盖文件只用于复测。它们不会改变默认 Compose。可以通过 `CAPACITY_MYSQL_INNODB_BUFFER_POOL_SIZE`、`CAPACITY_REDIS_MAXMEMORY` 和 `CAPACITY_REDIS_MAXMEMORY_POLICY` 覆盖 MySQL 和 Redis 的复测参数。启动后必须检查容器实际配额、MySQL 的 `@@innodb_buffer_pool_size` 和 Redis 的 `INFO memory`。本覆盖配置不包含真实压测数据和验收结论。
+
 首次启动按依赖顺序执行：MySQL 健康后运行 `migrate up`；迁移成功且 Elasticsearch 健康后运行 `search-reindex --if-missing`；初始化成功且各自依赖健康后启动三个业务进程；API 就绪后启动 Nginx。已有搜索别名会跳过重建。任一初始化任务失败都会阻止后续业务容器启动。
 
 HTTP 会跳转到 HTTPS。首次部署使用 `.env.example` 的域名示例时，需自行提供覆盖 `localhost` 的证书；公网部署应使用实际域名和有效证书。Nginx 不负责自动申请或续期证书。

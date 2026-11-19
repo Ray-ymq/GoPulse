@@ -78,7 +78,7 @@
 
     <section id="status">
       <h2>一、实施状态</h2>
-      <p>本轮执行了静态数据核算、仓库实现检查、资源预算检查和 HTML 验证。没有修改 Compose、MySQL、Redis 或 Elasticsearch 的运行配置。以下配置仍属于复测档位。</p>
+      <p>本轮执行了静态数据核算、仓库实现检查、资源预算检查和 HTML 验证。默认 Compose 没有修改。本轮新增两个只在显式追加时生效的复测覆盖文件，并在隔离 project 中启动依赖容器完成参数和健康检查。没有执行真实业务压测。</p>
       <div class="table-wrap" tabindex="0" role="region" aria-labelledby="status-caption">
         <table>
           <caption id="status-caption">评估方案的当前状态</caption>
@@ -88,14 +88,16 @@
           <tbody>
             <tr><th scope="row">压测数据和失败率计算</th><td>已完成</td><td>已核对 503、请求错误、P50、P95、P99 和资源预算。</td></tr>
             <tr><th scope="row">当前配置缺口检查</th><td>已完成</td><td>已核对 Compose、.env.example、搜索实现、缓存实现和 MySQL 查询。</td></tr>
-            <tr><th scope="row">Elasticsearch 4→6 vCPU、6 GiB 复测</th><td>未完成</td><td>需要保存渲染后的 Compose、容器实际配额和节点统计。</td></tr>
-            <tr><th scope="row">MySQL 128 MiB→2 GiB 对照</th><td>未完成</td><td>当前 Compose 没有 buffer pool 配置入口，需要先补充复测配置。</td></tr>
+            <tr><th scope="row">Elasticsearch 6 vCPU、6 GiB、3 GiB heap 覆盖配置</th><td>已验证启动</td><td><a href="../compose.capacity-es.yml">compose.capacity-es.yml</a> 已完成静态渲染和隔离容器核对。容器报告 healthy，heap 为 3 GiB。</td></tr>
+            <tr><th scope="row">MySQL 2 GiB buffer pool 和 Redis 256 MiB 覆盖配置</th><td>已验证启动</td><td><a href="../compose.capacity-cache-db.yml">compose.capacity-cache-db.yml</a> 已完成静态渲染和隔离容器核对。MySQL buffer pool 为 2 GiB，Redis maxmemory 为 200 MiB。</td></tr>
+            <tr><th scope="row">隔离容器健康检查</th><td>已完成</td><td>Elasticsearch、MySQL 和 Redis 均为 healthy。Elasticsearch 集群状态为 green，Redis 返回 PONG，MySQL 查询返回 1。</td></tr>
             <tr><th scope="row">Redis 热点命中和 AOF 观察</th><td>未完成</td><td>当前应用缓存观测回调为空，需要采集命中、未命中和错误。</td></tr>
+            <tr><th scope="row">真实业务压测</th><td>未完成</td><td>需要挂载 4 倍测试数据和负载发生器，再按复测矩阵执行。</td></tr>
             <tr><th scope="row">生产配置验收</th><td>待定义</td><td>需要先确定各接口错误率、P95、P99 和资源余量目标。</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="note">本报告的“建议配置”不表示已经完成真实压测或已部署。当前数据不能确认帖子搜索的实际失败率。</p>
+      <p class="note">覆盖文件只定义复测档位，不改变默认 Compose。隔离容器已在验证后停止并清理。当前数据不能确认帖子搜索的实际失败率。</p>
     </section>
 
     <section id="bottleneck">
@@ -149,7 +151,7 @@
           </tbody>
         </table>
       </div>
-      <p><code>docker compose config</code>、<code>docker inspect</code>、<code>docker stats --no-stream</code>、<code>/_nodes/stats/process,jvm,thread_pool,indices,fs</code>、<code>/_nodes/hot_threads?threads=10</code> 和 <code>/_cluster/pending_tasks</code> 应在每档保存。</p>
+      <p>使用 <code>docker compose -f compose.yml -f compose.capacity-es.yml config</code> 可渲染 Elasticsearch 目标档位。使用 <code>docker compose -f compose.yml -f compose.capacity-es.yml -f compose.capacity-cache-db.yml up -d</code> 才会实际启动覆盖配置。本轮已在隔离 project 中启动这三个依赖并核对实际限制、heap、buffer pool、Redis maxmemory 和健康状态。<code>docker compose config</code>、<code>docker inspect</code>、<code>docker stats --no-stream</code>、<code>/_nodes/stats/process,jvm,thread_pool,indices,fs</code>、<code>/_nodes/hot_threads?threads=10</code> 和 <code>/_cluster/pending_tasks</code> 应在每档保存。</p>
 
       <h3>Redis · 提高缓存收益，保留 256 MiB 测试配额</h3>
       <ul>
@@ -193,7 +195,7 @@
       </ol>
     </section>
 
-    <footer>本文各配置档位为复测方案。本轮未重新执行真实压测，也未修改运行配置。容量结论适用于原记录的测试范围。</footer>
+    <footer>本文各配置档位为复测方案。默认 Compose 保持不变。本轮完成覆盖配置和隔离容器验证，未重新执行真实业务压测。容量结论适用于原记录的测试范围。</footer>
   </main>
 </body>
 </html>
