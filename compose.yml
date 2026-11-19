@@ -163,7 +163,7 @@ services:
   indexer:
     <<: *app
     entrypoint: [/app/search-indexer]
-    cpus: "1.5"
+    cpus: "1"
     mem_limit: 1g
     environment:
       <<: [*database-env, *bus-env, *search-env]
@@ -265,11 +265,12 @@ services:
     image: rabbitmq:4.3.7-alpine
     hostname: rabbitmq
     restart: unless-stopped
-    cpus: "1"
+    cpus: "1.5"
     mem_limit: 512m
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?请设置 RabbitMQ 账号}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?请设置 RabbitMQ 密码}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
