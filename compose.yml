@@ -54,6 +54,8 @@ services:
   web:
     image: gopulse/web:${GOPULSE_IMAGE_TAG:?请设置 GOPULSE_IMAGE_TAG}
     restart: unless-stopped
+    cpus: "0.5"
+    mem_limit: 256m
     environment:
       GOPULSE_DOMAIN: ${GOPULSE_DOMAIN:?请设置域名}
       GOPULSE_HTTPS_SUFFIX: ${GOPULSE_HTTPS_SUFFIX:-}
@@ -80,6 +82,8 @@ services:
   api:
     <<: *app
     entrypoint: [/app/server]
+    cpus: "2"
+    mem_limit: 1g
     environment:
       <<: [*database-env, *bus-env, *search-env]
       APP_ENV: production
@@ -136,6 +140,8 @@ services:
   worker:
     <<: *app
     entrypoint: [/app/business-worker]
+    cpus: "1"
+    mem_limit: 512m
     environment:
       <<: [*database-env, *bus-env]
       BUSINESS_WORKER_HEALTH_ADDRESS: 127.0.0.1:19102
@@ -157,6 +163,8 @@ services:
   indexer:
     <<: *app
     entrypoint: [/app/search-indexer]
+    cpus: "1.5"
+    mem_limit: 1g
     environment:
       <<: [*database-env, *bus-env, *search-env]
       SEARCH_INDEXER_HEALTH_ADDRESS: 127.0.0.1:19103
@@ -181,6 +189,8 @@ services:
     restart: "no"
     entrypoint: [/app/migrate]
     command: [up]
+    cpus: "1"
+    mem_limit: 512m
     environment: *database-env
     depends_on:
       mysql:
@@ -191,6 +201,8 @@ services:
     restart: "no"
     entrypoint: [/app/search-reindex]
     command: [--if-missing]
+    cpus: "1"
+    mem_limit: 512m
     environment:
       <<: [*database-env, *search-env]
     depends_on:
@@ -203,11 +215,15 @@ services:
   mysql:
     image: mysql:8.4.13
     restart: unless-stopped
+    cpus: "3"
+    mem_limit: 2.5g
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:?}
       MYSQL_USER: ${MYSQL_USER:?}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置 MYSQL_ROOT_PASSWORD}
+    command:
+      - --innodb-buffer-pool-size=1.5G
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -224,6 +240,8 @@ services:
   redis:
     image: redis:7.2.17-alpine
     restart: unless-stopped
+    cpus: "1"
+    mem_limit: 2g
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?}
     command:
@@ -242,6 +260,8 @@ services:
     image: rabbitmq:4.3.7-alpine
     hostname: rabbitmq
     restart: unless-stopped
+    cpus: "1"
+    mem_limit: 512m
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?请设置 RabbitMQ 账号}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?请设置 RabbitMQ 密码}
@@ -256,11 +276,12 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
     restart: unless-stopped
+    cpus: "4"
+    mem_limit: 4.5g
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms1g -Xmx1g
-    mem_limit: 2g
+      ES_JAVA_OPTS: -Xms2.5g -Xmx2.5g
     ulimits:
       nofile:
         soft: 65535
