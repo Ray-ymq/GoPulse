@@ -88,6 +88,19 @@ docker compose logs --tail=100 api worker indexer
 
 探针使用 `/ready` 判断业务进程就绪；Nginx 探针使用 HTTP `/health`。`unhealthy` 不会触发 Docker 自动重启，`restart: unless-stopped` 处理进程退出。需要持续监测状态并按故障原因处理，不能用健康检查代替恢复机制。
 
+## 观察 Redis 缓存命中情况
+
+帖子搜索第 1 至 10 页缓存有序帖子 ID。每条缓存的有效期为 30 秒，命中时不续期。第 11 页起和空搜索结果跳过缓存写入。
+
+在观测区间开始和结束时，各采样一次同一 Redis 实例的 `INFO stats`：
+
+```sh
+docker compose exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli INFO stats' \
+  | awk -F: '/^keyspace_(hits|misses):/ { sub(/\r$/, "", $2); print $1, $2 }'
+```
+
+分别用结束值减去开始值，得到区间内 `keyspace_hits` 和 `keyspace_misses` 的增量。两项增量之和大于 0 时，用命中增量除以该总和，得到区间命中率。Redis 重启或计数器重置后，需重新采样。两项都是实例级计数，也包含帖子正文等其他缓存访问。
+
 ## 升级与失败处理
 
 升级会中断服务。执行前先备份数据库并验证恢复方法，记录旧代码版本与镜像标签。迁移 `000021_remove_observability` 会删除旧告警表，降级只能恢复表结构，不能恢复已删除的数据。

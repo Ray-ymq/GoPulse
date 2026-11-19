@@ -242,22 +242,39 @@ func (repository *ElasticsearchRepository) openPointInTime(ctx context.Context, 
 }
 
 func (repository *ElasticsearchRepository) Search(ctx context.Context, generation, pointInTime, query string, limit int, after *Hit) (SearchResult, error) {
-	if !validPhysicalIndex(generation) || pointInTime == "" || len(pointInTime) > 4096 || limit < 1 || limit > 50 {
+	if pointInTime == "" {
 		return SearchResult{}, ErrUnavailable
+	}
+	return repository.search(ctx, generation, pointInTime, query, limit, 0, after)
+}
+
+func (repository *ElasticsearchRepository) SearchAtOffset(ctx context.Context, generation, pointInTime, query string, limit, offset int) (SearchResult, error) {
+	return repository.search(ctx, generation, pointInTime, query, limit, offset, nil)
+}
+
+func (repository *ElasticsearchRepository) search(ctx context.Context, generation, pointInTime, query string, limit, offset int, after *Hit) (SearchResult, error) {
+	if !validPhysicalIndex(generation) || len(pointInTime) > 4096 || limit < 1 || limit > MaximumLimit || offset < 0 || offset > maximumSearchOffset {
+		return SearchResult{}, ErrUnavailable
+	}
+	sort := []any{
+		map[string]any{"_score": map[string]string{"order": "desc"}},
+		map[string]any{"created_at": map[string]string{"order": "desc", "format": "strict_date_optional_time_nanos"}},
+		map[string]any{"post_id": map[string]string{"order": "desc"}},
 	}
 	body := map[string]any{
 		"size":    limit + 1,
 		"_source": false,
-		"pit": map[string]string{
-			"id": pointInTime, "keep_alive": pointInTimeKeepAliveValue,
-		},
-		"query": map[string]any{"bool": map[string]any{"must": map[string]any{"multi_match": map[string]any{"query": query, "type": "best_fields", "fields": []string{"title^2", "content"}}}, "must_not": map[string]any{"term": map[string]any{"deleted": true}}}},
-		"sort": []any{
-			map[string]any{"_score": map[string]string{"order": "desc"}},
-			map[string]any{"created_at": map[string]string{"order": "desc", "format": "strict_date_optional_time_nanos"}},
-			map[string]any{"post_id": map[string]string{"order": "desc"}},
-			map[string]any{"_shard_doc": map[string]string{"order": "desc"}},
-		},
+		"query":   map[string]any{"bool": map[string]any{"must": map[string]any{"multi_match": map[string]any{"query": query, "type": "best_fields", "fields": []string{"title^2", "content"}}}, "must_not": map[string]any{"term": map[string]any{"deleted": true}}}},
+	}
+	path := "/" + generation + "/_search"
+	if pointInTime != "" {
+		path = "/_search"
+		body["pit"] = map[string]string{"id": pointInTime, "keep_alive": pointInTimeKeepAliveValue}
+		sort = append(sort, map[string]any{"_shard_doc": map[string]string{"order": "desc"}})
+	}
+	body["sort"] = sort
+	if offset > 0 {
+		body["from"] = offset
 	}
 	if after != nil {
 		body["search_after"] = []any{after.Score, after.CreatedAt, after.PostID, after.ShardDoc}
@@ -266,12 +283,12 @@ func (repository *ElasticsearchRepository) Search(ctx context.Context, generatio
 	if err != nil {
 		return SearchResult{}, ErrUnavailable
 	}
-	response, err := repository.do(ctx, http.MethodPost, "/_search", bytes.NewReader(encoded))
+	response, err := repository.do(ctx, http.MethodPost, path, bytes.NewReader(encoded))
 	if err != nil {
 		return SearchResult{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode == http.StatusNotFound {
+	if response.StatusCode == http.StatusNotFound && pointInTime != "" {
 		return SearchResult{}, ErrPointInTimeExpired
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -279,7 +296,11 @@ func (repository *ElasticsearchRepository) Search(ctx context.Context, generatio
 	}
 	var payload struct {
 		PointInTime string `json:"pit_id"`
-		Hits        struct {
+		TimedOut    bool   `json:"timed_out"`
+		Shards      struct {
+			Failed int `json:"failed"`
+		} `json:"_shards"`
+		Hits struct {
 			Hits []struct {
 				Index string            `json:"_index"`
 				ID    string            `json:"_id"`
@@ -287,38 +308,40 @@ func (repository *ElasticsearchRepository) Search(ctx context.Context, generatio
 			} `json:"hits"`
 		} `json:"hits"`
 	}
-	if err := decodeJSON(response.Body, &payload); err != nil || payload.PointInTime == "" || len(payload.PointInTime) > 4096 {
+	if err := decodeJSON(response.Body, &payload); err != nil || payload.TimedOut || payload.Shards.Failed != 0 ||
+		(pointInTime == "") != (payload.PointInTime == "") || len(payload.PointInTime) > 4096 || len(payload.Hits.Hits) > limit+1 {
 		return SearchResult{}, ErrUnavailable
 	}
 	result := SearchResult{Generation: generation, PointInTime: payload.PointInTime, Hits: make([]Hit, 0, len(payload.Hits.Hits))}
 	for _, raw := range payload.Hits.Hits {
-		if raw.Index != generation || len(raw.Sort) != 4 {
+		if raw.Index != generation || len(raw.Sort) != len(sort) {
 			return SearchResult{}, ErrUnavailable
 		}
 		postID, err := strconv.ParseUint(raw.ID, 10, 64)
 		if err != nil || postID == 0 {
 			return SearchResult{}, ErrUnavailable
 		}
-		var hit Hit
-		if err := json.Unmarshal(raw.Sort[0], &hit.Score); err != nil || hit.Score < 0 || hit.Score != hit.Score {
-			return SearchResult{}, ErrUnavailable
-		}
-		if err := json.Unmarshal(raw.Sort[1], &hit.CreatedAt); err != nil || hit.CreatedAt == "" {
-			return SearchResult{}, ErrUnavailable
-		}
 		var sortID json.Number
 		if err := json.Unmarshal(raw.Sort[2], &sortID); err != nil || sortID.String() != raw.ID {
 			return SearchResult{}, ErrUnavailable
 		}
-		var shardDoc json.Number
-		if err := json.Unmarshal(raw.Sort[3], &shardDoc); err != nil {
-			return SearchResult{}, ErrUnavailable
+		hit := Hit{PostID: postID}
+		if pointInTime != "" {
+			if err := json.Unmarshal(raw.Sort[0], &hit.Score); err != nil || hit.Score < 0 || hit.Score != hit.Score {
+				return SearchResult{}, ErrUnavailable
+			}
+			if err := json.Unmarshal(raw.Sort[1], &hit.CreatedAt); err != nil || hit.CreatedAt == "" {
+				return SearchResult{}, ErrUnavailable
+			}
+			var shardDoc json.Number
+			if err := json.Unmarshal(raw.Sort[3], &shardDoc); err != nil {
+				return SearchResult{}, ErrUnavailable
+			}
+			hit.ShardDoc, err = strconv.ParseInt(shardDoc.String(), 10, 64)
+			if err != nil || hit.ShardDoc < 0 {
+				return SearchResult{}, ErrUnavailable
+			}
 		}
-		hit.ShardDoc, err = strconv.ParseInt(shardDoc.String(), 10, 64)
-		if err != nil || hit.ShardDoc < 0 {
-			return SearchResult{}, ErrUnavailable
-		}
-		hit.PostID = postID
 		result.Hits = append(result.Hits, hit)
 	}
 	return result, nil

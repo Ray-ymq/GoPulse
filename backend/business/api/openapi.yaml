@@ -1146,13 +1146,11 @@ paths:
       tags:
       - Search
       summary: 检索帖子
-      description: '命中结果回表补齐，检索引擎中已不存在的文档被丢弃。
-
-        游标是绑定查询词与快照的会话令牌，存活 2 分钟，过期后需要从第一页重新检索。
-
-        只接受 `q`、`limit`、`cursor`，出现其他查询参数返回 400 `validation_failed`。
-
-        '
+      description: |
+        服务按 Elasticsearch 命中顺序从 MySQL 读取当前帖子内容，并过滤已删除的帖子。
+        第 1 至 10 页按已消费的命中数推进偏移量。第 11 页打开 Elasticsearch 时间点快照（PIT），从游标偏移量开始读取。后续页沿用这个快照。
+        前 10 页及切换到 PIT 时，索引变化可能导致结果重复或跳过。已有 PIT 游标可按原规则续页，直至过期。
+        只接受 `q`、`limit`、`cursor`。出现其他查询参数时返回 400 `validation_failed`。
       parameters:
       - $ref: '#/components/parameters/SearchQuery'
       - $ref: '#/components/parameters/Limit'
@@ -1313,11 +1311,10 @@ components:
       name: cursor
       in: query
       required: false
-      description: '帖子搜索的游标，最长为 8192 字节，绑定查询词、数据 epoch 与检索引擎快照；
-
-        快照存活 2 分钟，过期后需要从第一页重新检索。
-
-        '
+      description: |
+        帖子搜索的签名游标，最长为 8192 字节，绑定查询词、数据纪元和索引代次。
+        第 1 至 10 页返回的偏移量游标还绑定 `limit`。第 11 页及后续页返回的游标绑定 PIT。
+        游标有效期为 2 分钟。过期后从第一页重新检索。
       schema:
         type: string
         maxLength: 8192

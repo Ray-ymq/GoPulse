@@ -32,15 +32,16 @@ func NewRedis(cfg config.RedisConfig) *Redis {
 		poolTimeout = time.Second
 	}
 	redisClient := goredis.NewClient(&goredis.Options{
-		Addr:         net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
-		Password:     cfg.Password,
-		DB:           cfg.DB,
-		PoolSize:     poolSize,
-		PoolTimeout:  poolTimeout,
-		MaxRetries:   0,
-		DialTimeout:  poolTimeout,
-		ReadTimeout:  poolTimeout,
-		WriteTimeout: poolTimeout,
+		Addr:                  net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
+		Password:              cfg.Password,
+		DB:                    cfg.DB,
+		PoolSize:              poolSize,
+		PoolTimeout:           poolTimeout,
+		MaxRetries:            0,
+		DialTimeout:           poolTimeout,
+		ReadTimeout:           poolTimeout,
+		WriteTimeout:          poolTimeout,
+		ContextTimeoutEnabled: true,
 	})
 	return &Redis{
 		client:   redisClient,

@@ -315,6 +315,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		notificationHandler := notificationhttp.NewHandler(notificationService, logger)
 		searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
 		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret).WithEpochProvider(state)
+		if redisClient != nil {
+			searchService.WithResultCache(redisClient, cfg.Redis.OperationTimeout)
+		}
 
 		routes.AdminUsers = adminhttp.NewHandler(users)
 		routes.Auth = authHandler

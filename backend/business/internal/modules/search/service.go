@@ -24,6 +24,10 @@ const (
 	DefaultLimit              = 20
 	MaximumLimit              = 50
 	cursorVersion             = 2
+	offsetCursorVersion       = 3
+	cachedSearchPages         = 10
+	maximumScanRounds         = 5
+	maximumSearchOffset       = cachedSearchPages * maximumScanRounds * (MaximumLimit + 1)
 	maximumCursorBytes        = 8192
 	pointInTimeKeepAliveValue = "2m"
 )
@@ -43,6 +47,9 @@ type Cursor struct {
 	PointInTime string
 	ExpiresAt   int64
 	After       Hit
+	Page        int
+	Offset      int
+	Limit       int
 	signature   []byte
 }
 
@@ -59,10 +66,22 @@ type cursorPayload struct {
 	ShardDoc    int64   `json:"shard_doc"`
 }
 
+type offsetCursorPayload struct {
+	Version     int    `json:"v"`
+	QueryDigest string `json:"q"`
+	DataEpoch   string `json:"epoch,omitempty"`
+	Generation  string `json:"generation"`
+	ExpiresAt   int64  `json:"expires_at"`
+	Page        int    `json:"page"`
+	Offset      int    `json:"offset"`
+	Limit       int    `json:"limit"`
+}
+
 type Searcher interface {
 	ResolveGeneration(context.Context) (string, error)
 	OpenPointInTime(context.Context, string) (string, error)
 	Search(context.Context, string, string, string, int, *Hit) (SearchResult, error)
+	SearchAtOffset(context.Context, string, string, string, int, int) (SearchResult, error)
 	ClosePointInTime(context.Context, string) error
 }
 
@@ -79,6 +98,7 @@ type Service struct {
 	searcher      Searcher
 	hydrator      Hydrator
 	cursorKey     []byte
+	resultCache   *resultCache
 	now           func() time.Time
 	epochProvider interface {
 		CurrentEpoch(context.Context) (string, error)
@@ -151,11 +171,15 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 		return Page{}, apperror.WrapInternal(errors.New("search service is unavailable"))
 	}
 
-	queryDigest := digestQuery(options.Query)
-	if options.Cursor != nil {
-		if options.Cursor.QueryDigest != queryDigest || !verifyCursor(*options.Cursor, service.cursorKey) || service.now().Unix() >= options.Cursor.ExpiresAt {
-			return Page{}, validationError("cursor is invalid")
-		}
+	if options.Limit < 1 || options.Limit > MaximumLimit {
+		return Page{}, validationError("limit must be an integer between 1 and 50")
+	}
+	query := strings.TrimSpace(options.Query)
+	queryDigest := digestQuery(query)
+	cursor := options.Cursor
+	if cursor != nil && (cursor.QueryDigest != queryDigest || !verifyCursor(*cursor, service.cursorKey) ||
+		service.now().Unix() >= cursor.ExpiresAt || (cursor.Page != 0 && cursor.Limit != options.Limit)) {
+		return Page{}, validationError("cursor is invalid")
 	}
 
 	dataEpoch := ""
@@ -171,98 +195,131 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 		return Page{}, unavailableError()
 	}
 
+	pageNumber, offset := 1, 0
 	pointInTime := ""
 	var after *Hit
-	if options.Cursor != nil {
-		if options.Cursor.Generation != generation || (dataEpoch != "" && options.Cursor.DataEpoch != dataEpoch) {
-			_ = service.searcher.ClosePointInTime(ctx, options.Cursor.PointInTime)
+	if cursor != nil {
+		if cursor.Generation != generation || ((cursor.Page != 0 || dataEpoch != "") && cursor.DataEpoch != dataEpoch) {
+			if cursor.PointInTime != "" {
+				_ = service.searcher.ClosePointInTime(ctx, cursor.PointInTime)
+			}
 			return Page{}, validationError("cursor is invalid")
 		}
-		pointInTime = options.Cursor.PointInTime
-		after = &options.Cursor.After
-	} else {
+		if cursor.Page == 0 {
+			pointInTime, after = cursor.PointInTime, &cursor.After
+		} else {
+			pageNumber, offset = cursor.Page, cursor.Offset
+		}
+	}
+	if pageNumber > cachedSearchPages {
 		pointInTime, err = service.searcher.OpenPointInTime(ctx, generation)
-		if err != nil {
+		if err != nil || pointInTime == "" {
 			return Page{}, unavailableError()
 		}
 	}
+	keepPointInTime := false
+	defer func() {
+		if pointInTime != "" && !keepPointInTime {
+			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+		}
+	}()
 
-	// Bound stale projection work per request; continuation consumes only scanned hits.
-	const maximumScanRounds = 5
+	cacheKey := ""
+	if service.resultCache != nil && pointInTime == "" && validEpoch(dataEpoch) {
+		cacheKey = resultCacheKey(dataEpoch, generation, queryDigest, pageNumber, offset, options.Limit)
+	}
 	page := Page{Posts: make([]post.Post, 0, options.Limit)}
 	hasMore := false
 	var last Hit
 	for round := 0; round < maximumScanRounds; round++ {
-		result, searchErr := service.searcher.Search(ctx, generation, pointInTime, options.Query, options.Limit, after)
-		if searchErr != nil {
-			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
-			if errors.Is(searchErr, ErrPointInTimeExpired) {
+		var ids []uint64
+		var result SearchResult
+		if round == 0 && cacheKey != "" {
+			ids = service.resultCache.get(ctx, cacheKey, options.Limit)
+		}
+		cacheHit := len(ids) > 0
+		if !cacheHit {
+			if after != nil {
+				result, err = service.searcher.Search(ctx, generation, pointInTime, query, options.Limit, after)
+			} else {
+				result, err = service.searcher.SearchAtOffset(ctx, generation, pointInTime, query, options.Limit, offset)
+			}
+			if errors.Is(err, ErrPointInTimeExpired) {
 				return Page{}, validationError("cursor is invalid")
 			}
-			return Page{}, unavailableError()
-		}
-		if result.Generation != generation || result.PointInTime == "" {
-			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
-			return Page{}, unavailableError()
-		}
-		pointInTime = result.PointInTime
-		identifiers := make([]uint64, len(result.Hits))
-		for i, hit := range result.Hits {
-			identifiers[i] = hit.PostID
-		}
-		records := make([]post.Post, 0, len(identifiers))
-		// FindMany accepts 1..post.MaximumLimit IDs; ES includes a lookahead hit.
-		for start := 0; start < len(identifiers); start += post.MaximumLimit {
-			end := min(start+post.MaximumLimit, len(identifiers))
-			batch, hydrateErr := service.hydrator.FindMany(ctx, viewerID, identifiers[start:end])
-			if hydrateErr != nil {
-				_ = service.searcher.ClosePointInTime(ctx, pointInTime)
-				return Page{}, apperror.WrapInternal(errors.New("hydrate search results"))
+			if err != nil || result.Generation != generation || (pointInTime == "") != (result.PointInTime == "") {
+				return Page{}, unavailableError()
 			}
-			records = append(records, batch...)
+			pointInTime = result.PointInTime
+			ids = make([]uint64, len(result.Hits))
+			for i, hit := range result.Hits {
+				ids[i] = hit.PostID
+			}
+			if round == 0 && cacheKey != "" && len(ids) > 0 {
+				service.resultCache.set(ctx, cacheKey, ids)
+			}
 		}
-		byID := make(map[uint64]post.Post, len(records))
-		for _, record := range records {
-			byID[record.ID] = record
+
+		byID, err := service.hydrate(ctx, viewerID, ids)
+		if err != nil {
+			return Page{}, err
 		}
-		hasMore = false
-		for _, hit := range result.Hits {
-			if record, exists := byID[hit.PostID]; exists {
+		consumed := 0
+		for _, id := range ids {
+			if record, exists := byID[id]; exists {
 				if len(page.Posts) == options.Limit {
-					hasMore = true
 					break
 				}
 				page.Posts = append(page.Posts, record)
 			}
-			last = hit
+			consumed++
 		}
-		if hasMore {
+		offset += consumed
+		if pointInTime != "" && consumed > 0 {
+			last = result.Hits[consumed-1]
+			after = &last
+		}
+		hasMore = consumed < len(ids) || len(ids) > options.Limit
+		refill := cacheHit && len(byID) < len(ids) && len(page.Posts) < options.Limit
+		if consumed < len(ids) || (!hasMore && !refill) {
 			break
 		}
-		if len(result.Hits) <= options.Limit {
-			break
-		}
-		hasMore = true
-		after = &last
 	}
 	if hasMore {
-		token, err := encodeCursor(Cursor{
+		next := Cursor{
 			QueryDigest: queryDigest,
 			DataEpoch:   dataEpoch,
 			Generation:  generation,
 			PointInTime: pointInTime,
 			ExpiresAt:   service.now().Add(pointInTimeKeepAlive).Unix(),
 			After:       last,
-		}, service.cursorKey)
+		}
+		if pointInTime == "" {
+			next.Page, next.Offset, next.Limit = pageNumber+1, offset, options.Limit
+		}
+		token, err := encodeCursor(next, service.cursorKey)
 		if err != nil {
-			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
 			return Page{}, apperror.WrapInternal(err)
 		}
 		page.NextCursor = &token
-	} else {
-		_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+		keepPointInTime = true
 	}
 	return page, nil
+}
+
+func (service *Service) hydrate(ctx context.Context, viewerID uint64, ids []uint64) (map[uint64]post.Post, error) {
+	byID := make(map[uint64]post.Post, len(ids))
+	for start := 0; start < len(ids); start += post.MaximumLimit {
+		end := min(start+post.MaximumLimit, len(ids))
+		records, err := service.hydrator.FindMany(ctx, viewerID, ids[start:end])
+		if err != nil {
+			return nil, apperror.WrapInternal(errors.New("hydrate search results"))
+		}
+		for _, record := range records {
+			byID[record.ID] = record
+		}
+	}
+	return byID, nil
 }
 
 func (service *Service) resolveGeneration(ctx context.Context, epoch string) (string, error) {
@@ -307,7 +364,12 @@ func DecodeCursor(token string) (Cursor, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
-	var raw cursorPayload
+	var raw struct {
+		cursorPayload
+		Page   int `json:"page"`
+		Offset int `json:"offset"`
+		Limit  int `json:"limit"`
+	}
 	if err := decoder.Decode(&raw); err != nil {
 		return Cursor{}, errors.New("cursor is invalid")
 	}
@@ -324,6 +386,7 @@ func DecodeCursor(token string) (Cursor, error) {
 		After: Hit{
 			Score: raw.Score, CreatedAt: raw.CreatedAt, PostID: raw.PostID, ShardDoc: raw.ShardDoc,
 		},
+		Page: raw.Page, Offset: raw.Offset, Limit: raw.Limit,
 		signature: signature,
 	}
 	canonical, err := marshalCursor(cursor)
@@ -334,16 +397,28 @@ func DecodeCursor(token string) (Cursor, error) {
 }
 
 func marshalCursor(cursor Cursor) ([]byte, error) {
-	if cursor.QueryDigest == "" || !validPhysicalIndex(cursor.Generation) || cursor.PointInTime == "" || len(cursor.PointInTime) > 4096 || cursor.ExpiresAt <= 0 || cursor.After.PostID == 0 || cursor.After.CreatedAt == "" || cursor.After.Score < 0 || cursor.After.Score != cursor.After.Score || cursor.After.ShardDoc < 0 {
-		return nil, errors.New("search cursor fields are invalid")
-	}
-	if len(cursor.QueryDigest) != sha256.Size*2 {
+	if len(cursor.QueryDigest) != sha256.Size*2 || !validPhysicalIndex(cursor.Generation) || cursor.ExpiresAt <= 0 {
 		return nil, errors.New("search cursor fields are invalid")
 	}
 	if _, err := hex.DecodeString(cursor.QueryDigest); err != nil {
 		return nil, errors.New("search cursor fields are invalid")
 	}
 	if cursor.DataEpoch != "" && !validEpoch(cursor.DataEpoch) {
+		return nil, errors.New("search cursor fields are invalid")
+	}
+	if cursor.Page != 0 {
+		if cursor.Page < 2 || cursor.Page > cachedSearchPages+1 || cursor.Limit < 1 || cursor.Limit > MaximumLimit ||
+			cursor.Offset < cursor.Page-1 || cursor.Offset > (cursor.Page-1)*maximumScanRounds*(cursor.Limit+1) ||
+			cursor.PointInTime != "" || cursor.After != (Hit{}) {
+			return nil, errors.New("search cursor fields are invalid")
+		}
+		return json.Marshal(offsetCursorPayload{
+			Version: offsetCursorVersion, QueryDigest: cursor.QueryDigest, DataEpoch: cursor.DataEpoch, Generation: cursor.Generation,
+			ExpiresAt: cursor.ExpiresAt, Page: cursor.Page, Offset: cursor.Offset, Limit: cursor.Limit,
+		})
+	}
+	if cursor.Offset != 0 || cursor.Limit != 0 || cursor.PointInTime == "" || len(cursor.PointInTime) > 4096 ||
+		cursor.After.PostID == 0 || cursor.After.CreatedAt == "" || cursor.After.Score < 0 || cursor.After.Score != cursor.After.Score || cursor.After.ShardDoc < 0 {
 		return nil, errors.New("search cursor fields are invalid")
 	}
 	return json.Marshal(cursorPayload{

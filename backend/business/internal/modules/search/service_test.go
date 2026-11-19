@@ -24,6 +24,11 @@ type fakeSearcher struct {
 	openErr     error
 	searchErr   error
 	closed      []string
+	offsets     []int
+	pitOffsets  []int
+	pitSearches int
+	pitOpens    int
+	resolves    int
 }
 
 type fakeEpochProvider struct {
@@ -36,6 +41,7 @@ func (provider *fakeEpochProvider) CurrentEpoch(context.Context) (string, error)
 }
 
 func (fake *fakeSearcher) ResolveGeneration(context.Context) (string, error) {
+	fake.resolves++
 	if fake.resolveErr != nil {
 		return "", fake.resolveErr
 	}
@@ -43,6 +49,7 @@ func (fake *fakeSearcher) ResolveGeneration(context.Context) (string, error) {
 }
 
 func (fake *fakeSearcher) OpenPointInTime(context.Context, string) (string, error) {
+	fake.pitOpens++
 	if fake.openErr != nil {
 		return "", fake.openErr
 	}
@@ -50,6 +57,7 @@ func (fake *fakeSearcher) OpenPointInTime(context.Context, string) (string, erro
 }
 
 func (fake *fakeSearcher) Search(_ context.Context, generation, pointInTime, _ string, limit int, after *Hit) (SearchResult, error) {
+	fake.pitSearches++
 	if fake.searchErr != nil {
 		return SearchResult{}, fake.searchErr
 	}
@@ -66,6 +74,21 @@ func (fake *fakeSearcher) Search(_ context.Context, generation, pointInTime, _ s
 		hits = hits[:limit+1]
 	}
 	return SearchResult{Generation: generation, PointInTime: pointInTime + "-next", Hits: hits}, nil
+}
+
+func (fake *fakeSearcher) SearchAtOffset(_ context.Context, generation, pointInTime, _ string, limit, offset int) (SearchResult, error) {
+	if pointInTime == "" {
+		fake.offsets = append(fake.offsets, offset)
+	} else {
+		fake.pitOffsets = append(fake.pitOffsets, offset)
+		pointInTime += "-next"
+	}
+	if fake.searchErr != nil {
+		return SearchResult{}, fake.searchErr
+	}
+	start := min(offset, len(fake.hits))
+	end := min(offset+limit+1, len(fake.hits))
+	return SearchResult{Generation: generation, PointInTime: pointInTime, Hits: fake.hits[start:end]}, nil
 }
 
 func (fake *fakeSearcher) ClosePointInTime(_ context.Context, pointInTime string) error {
@@ -135,7 +158,7 @@ func TestServiceHydratesInHitOrderAndInvalidatesOldGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cursor.PointInTime != "pit-current-next" || !verifyCursor(cursor, service.cursorKey) {
+	if cursor.Page != 2 || cursor.Offset != 1 || cursor.Limit != 1 || !verifyCursor(cursor, service.cursorKey) {
 		t.Fatalf("cursor = %#v", cursor)
 	}
 	searcher.generation = PhysicalIndexPrefix + "20260902t130000z-rebuilt"
@@ -144,7 +167,7 @@ func TestServiceHydratesInHitOrderAndInvalidatesOldGeneration(t *testing.T) {
 	if !ok || appError.Code != apperror.CodeValidationFailed {
 		t.Fatalf("error = %v, want validation_failed", err)
 	}
-	if len(searcher.closed) != 1 || searcher.closed[0] != cursor.PointInTime {
+	if len(searcher.closed) != 0 || searcher.pitOpens != 0 {
 		t.Fatalf("closed PITs = %#v", searcher.closed)
 	}
 }
@@ -309,8 +332,8 @@ func TestServiceRefillsDeletedHitsAndContinuesAfterScanBudget(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if cursor.After.PostID != 105 {
-					t.Fatalf("consumed hit=%d", cursor.After.PostID)
+				if cursor.Offset != 105 {
+					t.Fatalf("consumed hits=%d", cursor.Offset)
 				}
 				options.Cursor = &cursor
 				page, err = service.Search(context.Background(), 7, options)
