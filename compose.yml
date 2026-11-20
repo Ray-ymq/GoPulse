@@ -265,7 +265,7 @@ services:
     image: rabbitmq:4.3.7-alpine
     hostname: rabbitmq
     restart: unless-stopped
-    cpus: "1.5"
+    cpus: "2.5"
     mem_limit: 512m
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?请设置 RabbitMQ 账号}
@@ -275,20 +275,29 @@ services:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
       <<: *healthcheck
-      test: [CMD-SHELL, 'rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_connectivity']
+      interval: 60s
+      start_interval: 5s
+      retries: 3
+      test: [CMD, nc, -z, -w, "2", 127.0.0.1, "5672"]
     logging: *logging
     networks: [backend]
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
     restart: unless-stopped
-    cpus: "4"
+    cpus: "3"
     mem_limit: 4.5g
+    mem_swappiness: 0
+    memswap_limit: 4.5g
     environment:
+      bootstrap.memory_lock: "true"
       discovery.type: single-node
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: -Xms2560m -Xmx2560m
     ulimits:
+      memlock:
+        soft: -1
+        hard: -1
       nofile:
         soft: 65535
         hard: 65535

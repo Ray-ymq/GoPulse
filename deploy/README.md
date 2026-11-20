@@ -6,9 +6,9 @@
 
 ## 准备环境
 
-需要 Docker Engine、支持 `up --wait` 的 Docker Compose v2 或更新版本，以及 Make。构建使用 BuildKit 缓存，宿主机无需安装 Go 或 Node.js。首次构建和启动需要联网拉取镜像、Go 模块、npm 和 Alpine 软件包。
+需要 Docker Engine 25 或更新版本、Docker Compose 2.20.2 或更新版本，以及 Make。构建使用 BuildKit 缓存，宿主机无需安装 Go 或 Node.js。首次构建和启动需要联网拉取镜像、Go 模块、npm 和 Alpine 软件包。
 
-Elasticsearch 固定 1 GiB JVM 堆，容器内存上限为 2 GiB。主机还需为其他服务和系统预留内存；这些值是起始配置，不能视为容量保证。Linux 主机的 `vm.max_map_count` 至少设置为 `1048576`。先检查当前值，低于要求时由主机管理员调整，并配置重启后保留。参考 [Elastic 容器要求](https://www.elastic.co/docs/deploy-manage/deploy/self-managed/install-elasticsearch-docker-prod)。
+Elasticsearch 固定 2.5 GiB JVM 堆，容器内存上限为 4.5 GiB。主机还需为其他服务和系统预留内存。Linux 主机的 `vm.max_map_count` 至少设置为 `1048576`。先检查当前值，低于要求时由主机管理员调整，并配置重启后保留。参考 [Elastic 容器要求](https://www.elastic.co/docs/deploy-manage/deploy/self-managed/install-elasticsearch-docker-prod)。
 
 ```sh
 cat /proc/sys/vm/max_map_count
@@ -87,6 +87,17 @@ docker compose logs --tail=100 api worker indexer
 ```
 
 探针使用 `/ready` 判断业务进程就绪；Nginx 探针使用 HTTP `/health`。`unhealthy` 不会触发 Docker 自动重启，`restart: unless-stopped` 处理进程退出。需要持续监测状态并按故障原因处理，不能用健康检查代替恢复机制。
+
+RabbitMQ 在启动宽限期内每 5 秒探测 TCP 端口 `5672`，正常运行时每 60 秒探测一次。计入重试的探测连续失败 3 次后，Docker 将容器标记为 `unhealthy`。
+
+Elasticsearch 将 `memswap_limit` 设为与 `mem_limit` 相同的值，以禁用容器 Swap。启动后查询节点的 `mlockall`，预期为 `true`。在 cgroup v2 主机上，再检查 `memory.swap.max` 和 `memory.swap.current`，预期均为 `0`。
+
+```sh
+docker compose exec -T elasticsearch curl -fsS \
+  'http://127.0.0.1:9200/_nodes?filter_path=**.mlockall'
+docker compose exec -T elasticsearch cat \
+  /sys/fs/cgroup/memory.swap.max /sys/fs/cgroup/memory.swap.current
+```
 
 ## 观察 Redis 缓存命中情况
 
