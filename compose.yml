@@ -242,6 +242,7 @@ services:
     restart: unless-stopped
     cpus: "1"
     mem_limit: 2g
+    mem_swappiness: 0
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-1800mb}
@@ -270,7 +271,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?请设置 RabbitMQ 账号}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?请设置 RabbitMQ 密码}
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2"
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2 +sbwt none +sbwtdcpu none +sbwtdio none"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
