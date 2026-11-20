@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">GoPulse 阶段 2—4 容量曲线</title>
+  <desc id="desc">横轴为开环到达率。蓝线为观测 QPS。橙线为全局 P95。红色标记表示 CFS throttle 停止档位。</desc>
+  <rect width="960" height="520" fill="#fffdf8"/>
+  <text x="64" y="32" font-family="sans-serif" font-size="22" font-weight="700" fill="#24302d">GoPulse 阶段 2—4 容量曲线</text>
+  <text x="64" y="54" font-family="sans-serif" font-size="13" fill="#59635f">开环到达率、观测吞吐和全局 P95</text>
+  <g stroke="#dce3df" stroke-width="1">
+    <line x1="80" y1="80" x2="870" y2="80"/><line x1="80" y1="157.5" x2="870" y2="157.5"/>
+    <line x1="80" y1="235" x2="870" y2="235"/><line x1="80" y1="312.5" x2="870" y2="312.5"/>
+    <line x1="80" y1="390" x2="870" y2="390"/>
+  </g>
+  <g stroke="#3f4b46" stroke-width="1.5">
+    <line x1="80" y1="80" x2="80" y2="390"/><line x1="870" y1="80" x2="870" y2="390"/><line x1="80" y1="390" x2="870" y2="390"/>
+  </g>
+  <g font-family="sans-serif" font-size="12" fill="#59635f">
+    <text x="42" y="394">0</text><text x="28" y="316">600</text><text x="22" y="239">1200</text><text x="22" y="161">1800</text><text x="22" y="84">2400</text>
+    <text x="875" y="394">0</text><text x="875" y="239">250</text><text x="875" y="84">500</text>
+    <text x="438" y="430">开环到达率（req/s）</text>
+    <text x="12" y="72" transform="rotate(-90 12 72)">观测 QPS</text>
+    <text x="948" y="230" transform="rotate(90 948 230)">全局 P95（ms）</text>
+  </g>
+  <line x1="80" y1="80" x2="870" y2="80" stroke="#c94c4c" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="680" y="73" font-family="sans-serif" font-size="12" fill="#a53d3d">全局 P95 SLO 500 ms</text>
+  <polyline fill="none" stroke="#1967a3" stroke-width="3" points="152,209.6 250,191.1 307,183.5 364,171.9"/>
+  <polyline fill="none" stroke="#ce7a18" stroke-width="3" points="152,388.3 250,387.8 307,387.5 364,387.0"/>
+  <g fill="#1967a3">
+    <circle cx="152" cy="209.6" r="5"/><circle cx="250" cy="191.1" r="5"/><circle cx="307" cy="183.5" r="5"/><circle cx="364" cy="171.9" r="5"/>
+  </g>
+  <g fill="#ce7a18">
+    <circle cx="152" cy="388.3" r="5"/><circle cx="250" cy="387.8" r="5"/><circle cx="307" cy="387.5" r="5"/><circle cx="364" cy="387.0" r="5"/>
+  </g>
+  <g fill="#c94c4c" stroke="#fffdf8" stroke-width="2">
+    <circle cx="421" cy="228.9" r="6"/><circle cx="444" cy="223.3" r="6"/><circle cx="808" cy="278.7" r="6"/>
+  </g>
+  <g font-family="sans-serif" font-size="12">
+    <text x="117" y="204" fill="#1967a3">1400 / 1396.6</text><text x="232" y="181" fill="#1967a3">1536 / 1535.9</text>
+    <text x="286" y="172" fill="#1967a3">1600 / 1596.7</text><text x="340" y="160" fill="#1967a3">1700 / 1690.1</text>
+    <text x="430" y="245" fill="#a53d3d">1750 停止</text><text x="450" y="215" fill="#a53d3d">1800 停止</text><text x="770" y="294" fill="#a53d3d">2304 停止</text>
+  </g>
+  <g font-family="sans-serif" font-size="13">
+    <line x1="610" y1="455" x2="650" y2="455" stroke="#1967a3" stroke-width="3"/><circle cx="630" cy="455" r="5" fill="#1967a3"/><text x="660" y="460" fill="#3f4b46">观测 QPS</text>
+    <line x1="748" y1="455" x2="788" y2="455" stroke="#ce7a18" stroke-width="3"/><circle cx="768" cy="455" r="5" fill="#ce7a18"/><text x="798" y="460" fill="#3f4b46">全局 P95</text>
+  </g>
+</svg>
