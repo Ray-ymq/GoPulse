@@ -242,7 +242,6 @@ services:
     restart: unless-stopped
     cpus: "1"
     mem_limit: 2g
-    mem_swappiness: 0
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-1800mb}
