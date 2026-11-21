@@ -230,9 +230,9 @@ func scanPublicProjection(scan scanFunc) (PublicProjection, error) {
 	return projection, err
 }
 
-func scanPost(scan scanFunc) (Post, error) {
+func scanPost(scan scanFunc, extra ...any) (Post, error) {
 	var record Post
-	err := scan(
+	destinations := []any{
 		&record.ID,
 		&record.Title,
 		&record.Content,
@@ -249,7 +249,8 @@ func scanPost(scan scanFunc) (Post, error) {
 		&record.Author.Following,
 		&record.BookmarkedByMe,
 		&record.BookmarkCreatedAt,
-	)
+	}
+	err := scan(append(destinations, extra...)...)
 	return record, err
 }
 

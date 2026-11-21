@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/bus"
 )
@@ -73,6 +72,6 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 
 // Read on the same transaction so every response field is known before commit.
 func readUpdatedPost(ctx context.Context, tx *sql.Tx, id, viewer uint64) (Post, error) {
-	query := fmt.Sprintf(postListReadSelect, postCountColumns, "p.created_at", "") + " WHERE p.id=?"
+	query := postListSelect(false, "p.created_at", "") + " WHERE p.id=?"
 	return scanPost(tx.QueryRowContext(ctx, query, viewer, viewer, viewer, id).Scan)
 }

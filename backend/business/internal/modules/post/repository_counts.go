@@ -30,17 +30,6 @@ func (repository *MySQLRepository) invalidateCounts(ctx context.Context, epoch s
 	}
 }
 
-func (repository *MySQLRepository) countsEpoch(ctx context.Context) string {
-	if repository.counts == nil {
-		return ""
-	}
-	epoch, err := repository.counts.Epoch(ctx)
-	if err != nil {
-		return ""
-	}
-	return epoch
-}
-
 func (repository *MySQLRepository) getCounts(ctx context.Context, epoch string, ids []uint64) (map[uint64]interactionCounts, error) {
 	if repository.counts == nil {
 		return repository.countInMySQL(ctx, epoch, ids)

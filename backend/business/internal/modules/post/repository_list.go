@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/readcache"
 )
 
 const postListReadSelect = `
@@ -27,7 +29,7 @@ SELECT
     ) AS liked_by_me,
     EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id) AS following,
     EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.user_id = ? AND b.post_id = p.id) AS bookmarked_by_me,
-    %s AS bookmark_created_at
+    %s AS bookmark_created_at%s
 FROM posts AS p %s
 INNER JOIN users AS u ON u.id = p.author_id`
 
@@ -48,32 +50,24 @@ func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, op
 }
 
 func (repository *MySQLRepository) listFromMySQL(ctx context.Context, viewerID uint64, options ListOptions) ([]Post, error) {
-	epoch := repository.countsEpoch(ctx)
-	query, arguments := listStatement(viewerID, options, countColumns(epoch))
-	rows, err := repository.database.QueryContext(ctx, query, arguments...)
+	query := func(cached bool) (string, []any) { return listStatement(viewerID, options, cached) }
+	records, err := repository.readPosts(ctx, options.Limit+1, query)
 	if err != nil {
 		return nil, fmt.Errorf("list posts: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	posts := make([]Post, 0, options.Limit+1)
-	for rows.Next() {
-		record, err := scanPost(rows.Scan)
-		if err != nil {
-			return nil, fmt.Errorf("list posts: %w", err)
-		}
-		posts = append(posts, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list posts: %w", err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	return posts, repository.hydrateCounts(ctx, epoch, posts)
+	return records, nil
 }
 
-func listStatement(viewerID uint64, options ListOptions, counts string) (string, []any) {
+const readyEpochColumn = ", COALESCE((SELECT data_epoch FROM business_runtime_state WHERE singleton=1 AND status='ready'), '')"
+
+func postListSelect(cached bool, timestamp, join string) string {
+	if cached {
+		return fmt.Sprintf(postListReadSelect, "0, 0", timestamp, readyEpochColumn, join)
+	}
+	return fmt.Sprintf(postListReadSelect, postCountColumns, timestamp, "", join)
+}
+
+func listStatement(viewerID uint64, options ListOptions, cached bool) (string, []any) {
 	timestamp := "p.created_at"
 	join := ""
 	if !options.Bookmarks && !options.Following && options.AuthorID == 0 {
@@ -102,10 +96,10 @@ func listStatement(viewerID uint64, options ListOptions, counts string) (string,
 	arguments = append(arguments, options.Limit+1)
 	if options.Following && !options.Bookmarks {
 		page := "SELECT p.id FROM posts AS p " + join + filter + order + " LIMIT ?"
-		query := fmt.Sprintf(postListReadSelect, counts, timestamp, "INNER JOIN ("+page+") AS feed_page ON feed_page.id=p.id") + order
+		query := postListSelect(cached, timestamp, "INNER JOIN ("+page+") AS feed_page ON feed_page.id=p.id") + order
 		return query, arguments
 	}
-	query := fmt.Sprintf(postListReadSelect, counts, timestamp, join) + filter + order + " LIMIT ?"
+	query := postListSelect(cached, timestamp, join) + filter + order + " LIMIT ?"
 	return query, arguments
 }
 
@@ -116,7 +110,7 @@ func (repository *MySQLRepository) FindMany(ctx context.Context, viewerID uint64
 		return nil, errors.New("find many posts: invalid arguments")
 	}
 	placeholders := make([]string, len(identifiers))
-	arguments := make([]any, 0, len(identifiers)+2)
+	arguments := make([]any, 0, len(identifiers)+3)
 	arguments = append(arguments, viewerID, viewerID, viewerID)
 	for index, identifier := range identifiers {
 		if identifier == 0 {
@@ -125,35 +119,65 @@ func (repository *MySQLRepository) FindMany(ctx context.Context, viewerID uint64
 		placeholders[index] = "?"
 		arguments = append(arguments, identifier)
 	}
-	epoch := repository.countsEpoch(ctx)
-	query := fmt.Sprintf(postListReadSelect, countColumns(epoch), "p.created_at", "") + `
-WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
-	rows, err := repository.database.QueryContext(ctx, query, arguments...)
+	query := func(cached bool) (string, []any) {
+		return postListSelect(cached, "p.created_at", "") + `
+WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`, arguments
+	}
+	records, err := repository.readPosts(ctx, len(identifiers), query)
 	if err != nil {
 		return nil, fmt.Errorf("find many posts: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-	byID := make(map[uint64]Post, len(identifiers))
-	for rows.Next() {
-		record, err := scanPost(rows.Scan)
-		if err != nil {
-			return nil, fmt.Errorf("find many posts: %w", err)
-		}
+	byID := make(map[uint64]Post, len(records))
+	for _, record := range records {
 		byID[record.ID] = record
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("find many posts: %w", err)
 	}
 	ordered := make([]Post, 0, len(identifiers))
 	for _, identifier := range identifiers {
-		record, ok := byID[identifier]
-		if !ok {
-			continue
+		if record, ok := byID[identifier]; ok {
+			ordered = append(ordered, record)
 		}
-		ordered = append(ordered, record)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
+	return ordered, nil
+}
+
+func (repository *MySQLRepository) readPosts(ctx context.Context, capacity int, query func(bool) (string, []any)) ([]Post, error) {
+	if repository.counts == nil {
+		records, _, err := repository.queryPosts(ctx, capacity, query, false)
+		return records, err
 	}
-	return ordered, repository.hydrateCounts(ctx, epoch, ordered)
+	records, epoch, err := repository.queryPosts(ctx, capacity, query, true)
+	if err != nil || len(records) == 0 {
+		return records, err
+	}
+	if expected := readcache.RequestEpoch(ctx); expected != "" && epoch != expected {
+		return nil, ErrReadContextChanged
+	}
+	if epoch == "" {
+		records, _, err := repository.queryPosts(ctx, capacity, query, false)
+		return records, err
+	}
+	return records, repository.hydrateCounts(ctx, epoch, records)
+}
+
+func (repository *MySQLRepository) queryPosts(ctx context.Context, capacity int, statement func(bool) (string, []any), cached bool) ([]Post, string, error) {
+	query, arguments := statement(cached)
+	rows, err := repository.database.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = rows.Close() }()
+	records := make([]Post, 0, capacity)
+	var epoch string
+	var extra []any
+	if cached {
+		extra = []any{&epoch}
+	}
+	for rows.Next() {
+		record, err := scanPost(rows.Scan, extra...)
+		if err != nil {
+			return nil, "", err
+		}
+		records = append(records, record)
+	}
+	return records, epoch, rows.Err()
 }

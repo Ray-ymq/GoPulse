@@ -48,8 +48,13 @@ func WithEpoch(ctx context.Context, epoch string) context.Context {
 	return context.WithValue(ctx, epochKey{}, epoch)
 }
 
+func RequestEpoch(ctx context.Context) string {
+	epoch, _ := ctx.Value(epochKey{}).(string)
+	return epoch
+}
+
 func (scope *Scope) Epoch(ctx context.Context) (string, error) {
-	if epoch, _ := ctx.Value(epochKey{}).(string); epoch != "" {
+	if epoch := RequestEpoch(ctx); epoch != "" {
 		return epoch, nil
 	}
 	return scope.epochs.ReadyEpoch(ctx)
