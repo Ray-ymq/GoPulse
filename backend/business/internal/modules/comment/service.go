@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/readcache"
 	"github.com/Ray-ymq/GoPulse/backend/internal/shared/apperror"
 )
 
@@ -15,6 +16,7 @@ type Service struct {
 	repository       Repository
 	posts            postExistence
 	invalidateCounts func(context.Context, uint64)
+	pages            *readcache.Cache[uint64, Page]
 }
 
 func NewService(repository Repository, posts postExistence) *Service {
@@ -34,7 +36,8 @@ func (service *Service) Create(ctx context.Context, postID, authorID uint64, inp
 	if err != nil {
 		return Comment{}, apperror.WrapInternal(err)
 	}
-	if err := service.posts.RequireExists(ctx, postID); err != nil {
+	epoch, err := service.requirePost(ctx, postID, service.pages != nil)
+	if err != nil {
 		return Comment{}, err
 	}
 
@@ -43,8 +46,9 @@ func (service *Service) Create(ctx context.Context, postID, authorID uint64, inp
 		return Comment{}, apperror.WrapInternal(err)
 	}
 	if service.invalidateCounts != nil {
-		service.invalidateCounts(ctx, postID)
+		service.invalidateCounts(readcache.WithEpoch(ctx, epoch), postID)
 	}
+	service.InvalidatePage(ctx, epoch, postID)
 	return record, nil
 }
 
@@ -55,20 +59,38 @@ func (service *Service) List(ctx context.Context, postID uint64, options ListOpt
 	if options.Cursor != nil && options.Cursor.ID == 0 {
 		return Page{}, validationError("cursor is invalid")
 	}
-	if err := service.posts.RequireExists(ctx, postID); err != nil {
+	cacheable := service.pages != nil && options.Limit == DefaultLimit && options.Cursor == nil
+	epoch, err := service.requirePost(ctx, postID, cacheable)
+	if err != nil {
 		return Page{}, err
+	}
+	if cacheable && epoch != "" {
+		page, found, err := service.firstPage(ctx, epoch, postID, options)
+		if err == nil && found {
+			return page, nil
+		}
+		if err != nil && !errors.Is(err, errCommentEpochChanged) {
+			return Page{}, apperror.WrapInternal(err)
+		}
+		if err := service.posts.RequireExists(ctx, postID); err != nil {
+			return Page{}, err
+		}
 	}
 
 	records, err := service.repository.List(ctx, postID, options)
 	if err != nil {
 		return Page{}, apperror.WrapInternal(err)
 	}
+	return pageFromComments(records, options.Limit)
+}
+
+func pageFromComments(records []Comment, limit int) (Page, error) {
 	page := Page{Comments: records}
-	if len(records) <= options.Limit {
+	if len(records) <= limit {
 		return page, nil
 	}
 
-	page.Comments = records[:options.Limit]
+	page.Comments = records[:limit]
 	nextCursor, err := EncodeCursor(Cursor{ID: page.Comments[len(page.Comments)-1].ID})
 	if err != nil {
 		return Page{}, apperror.WrapInternal(err)

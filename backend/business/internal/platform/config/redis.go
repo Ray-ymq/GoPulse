@@ -22,6 +22,7 @@ const (
 type RedisConfig struct {
 	PostCountsCache  bool
 	DiscoveryCache   bool
+	CommentPageCache bool
 	Host             string
 	Port             int
 	Password         string

@@ -194,6 +194,21 @@ func (repository *MySQLRepository) Exists(ctx context.Context, postID uint64) (b
 	return exists, nil
 }
 
+func (repository *MySQLRepository) ExistsWithEpoch(ctx context.Context, postID uint64) (bool, string, error) {
+	var exists bool
+	var epoch string
+	err := repository.database.QueryRowContext(ctx, `
+SELECT EXISTS(SELECT 1 FROM posts WHERE id=?),
+       COALESCE((SELECT data_epoch FROM business_runtime_state WHERE singleton=1 AND status='ready'), '')`, postID).Scan(&exists, &epoch)
+	if err != nil {
+		return false, "", fmt.Errorf("检查帖子是否存在并读取数据 epoch: %w", err)
+	}
+	if businessstate.ValidateEpoch(epoch) != nil {
+		epoch = ""
+	}
+	return exists, epoch, nil
+}
+
 type scanFunc func(...any) error
 
 func scanPublicProjection(scan scanFunc) (PublicProjection, error) {

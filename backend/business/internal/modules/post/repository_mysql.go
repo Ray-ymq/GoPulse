@@ -30,13 +30,14 @@ type RepositoryOptions struct {
 }
 
 type MySQLRepository struct {
-	database  database
-	outbox    outbox.Writer
-	state     *businessstate.Repository
-	counts    *readcache.Cache[uint64, interactionCounts]
-	discovery *discoveryCache
-	clock     func() time.Time
-	logger    *slog.Logger
+	database              database
+	outbox                outbox.Writer
+	state                 *businessstate.Repository
+	counts                *readcache.Cache[uint64, interactionCounts]
+	discovery             *discoveryCache
+	invalidateCommentPage func(context.Context, string, uint64)
+	clock                 func() time.Time
+	logger                *slog.Logger
 }
 
 func NewMySQLRepository(database database, options ...RepositoryOptions) *MySQLRepository {

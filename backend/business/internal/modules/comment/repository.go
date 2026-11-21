@@ -145,7 +145,22 @@ func (repository *MySQLRepository) createWithoutEvent(ctx context.Context, postI
 }
 
 func (repository *MySQLRepository) List(ctx context.Context, postID uint64, options ListOptions) ([]Comment, error) {
+	return repository.list(ctx, postID, options, "")
+}
+
+var errCommentEpochChanged = errors.New("评论读取期间数据 epoch 已切换")
+
+func (repository *MySQLRepository) list(ctx context.Context, postID uint64, options ListOptions, epoch string) ([]Comment, error) {
 	query, arguments := listStatement(postID, options)
+	if epoch != "" {
+		query = `WITH candidates (id, post_id, content, created_at, author_id, username) AS (` + query + `)
+SELECT COALESCE(c.id, 0), COALESCE(c.post_id, 0), COALESCE(c.content, ''),
+       COALESCE(c.created_at, e.created_at), COALESCE(c.author_id, 0), COALESCE(c.username, '')
+FROM business_runtime_state e LEFT JOIN candidates c ON TRUE
+WHERE e.singleton=1 AND e.status='ready' AND e.data_epoch=?
+ORDER BY c.id DESC`
+		arguments = append(arguments, epoch)
+	}
 	rows, err := repository.database.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("list comments: %w", err)
@@ -153,15 +168,22 @@ func (repository *MySQLRepository) List(ctx context.Context, postID uint64, opti
 	defer func() { _ = rows.Close() }()
 
 	comments := make([]Comment, 0, options.Limit+1)
+	matched := false
 	for rows.Next() {
+		matched = true
 		record, err := scanComment(rows.Scan)
 		if err != nil {
 			return nil, fmt.Errorf("list comments: %w", err)
 		}
-		comments = append(comments, record)
+		if record.ID != 0 {
+			comments = append(comments, record)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list comments: %w", err)
+	}
+	if epoch != "" && !matched {
+		return nil, errCommentEpochChanged
 	}
 	return comments, nil
 }

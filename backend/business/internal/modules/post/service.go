@@ -256,6 +256,23 @@ func (service *Service) RequireExists(ctx context.Context, postID uint64) error 
 	return nil
 }
 
+func (service *Service) RequireExistsWithEpoch(ctx context.Context, postID uint64) (string, error) {
+	repository, ok := service.repository.(interface {
+		ExistsWithEpoch(context.Context, uint64) (bool, string, error)
+	})
+	if !ok {
+		return "", service.RequireExists(ctx, postID)
+	}
+	exists, epoch, err := repository.ExistsWithEpoch(ctx, postID)
+	if err != nil {
+		return "", apperror.WrapInternal(err)
+	}
+	if !exists {
+		return "", apperror.New(apperror.CodePostNotFound, "post not found")
+	}
+	return epoch, nil
+}
+
 func (s *Service) hydrateFollowing(ctx context.Context, records []Post, viewer uint64) error {
 	if r, ok := s.repository.(interface {
 		HydrateFollowing(context.Context, []Post, uint64) error

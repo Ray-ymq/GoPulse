@@ -283,17 +283,18 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		authHandler := authhttp.NewHandler(authService, cookies, logger)
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
+		var cacheScope *readcache.Scope
+		if redisClient != nil && (cfg.Redis.PostCountsCache || cfg.Redis.DiscoveryCache || cfg.Redis.CommentPageCache) {
+			cacheScope = readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
+		}
 		if !cfg.RedisDisabled {
 			postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
-			if cfg.Redis.PostCountsCache || cfg.Redis.DiscoveryCache {
-				scope := readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
-				if cfg.Redis.PostCountsCache {
-					posts.WithCountCache(scope)
-				}
-				if cfg.Redis.DiscoveryCache {
-					postBodyCache.WithBatch(scope)
-					posts.WithDiscoveryCache(scope, postBodyCache)
-				}
+			if cfg.Redis.PostCountsCache {
+				posts.WithCountCache(cacheScope)
+			}
+			if cfg.Redis.DiscoveryCache {
+				postBodyCache.WithBatch(cacheScope)
+				posts.WithDiscoveryCache(cacheScope, postBodyCache)
 			}
 			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
 				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
@@ -314,6 +315,10 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		postHandler := posthttp.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		commentService := comment.NewService(comments, postService).WithCountInvalidation(posts.InvalidateCounts)
+		if cfg.Redis.CommentPageCache {
+			commentService.WithPageCache(cacheScope)
+			posts.WithCommentPageInvalidation(commentService.InvalidatePage)
+		}
 		commentHandler := commenthttp.NewHandler(commentService, logger)
 		likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		likeService := like.NewService(likes, postService).WithCountInvalidation(posts.InvalidateCounts)

@@ -42,6 +42,9 @@ func NewScope(client Client, epochs EpochSource, timeout time.Duration, maxLoads
 type epochKey struct{}
 
 func WithEpoch(ctx context.Context, epoch string) context.Context {
+	if epoch == "" {
+		return ctx
+	}
 	return context.WithValue(ctx, epochKey{}, epoch)
 }
 

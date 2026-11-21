@@ -8,6 +8,10 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/bus"
 )
 
+func (r *MySQLRepository) WithCommentPageInvalidation(invalidate func(context.Context, string, uint64)) {
+	r.invalidateCommentPage = invalidate
+}
+
 // Delete serializes with edits and atomically removes facts and publishes intent.
 func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 
@@ -65,5 +69,8 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 	}
 	r.invalidateCounts(ctx, deletionEpoch, id)
 	r.invalidateDiscovery(ctx, deletionEpoch)
+	if r.invalidateCommentPage != nil {
+		r.invalidateCommentPage(ctx, deletionEpoch, id)
+	}
 	return nil
 }

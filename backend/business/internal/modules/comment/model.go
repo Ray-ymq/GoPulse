@@ -35,6 +35,6 @@ type ListOptions struct {
 
 // Page contains one response page and its optional continuation token.
 type Page struct {
-	Comments   []Comment
-	NextCursor *string
+	Comments   []Comment `json:"comments"`
+	NextCursor *string   `json:"next_cursor"`
 }
