@@ -138,10 +138,12 @@ func (repository *MySQLRepository) CreateWithCommand(ctx context.Context, author
 		defer cancel()
 		committed, found, lookupErr := repository.state.FindCommand(lookupContext, environment.DataEpoch, authorID, keyHash, now)
 		if lookupErr == nil && found && committed.Status == "succeeded" && bytes.Equal(committed.RequestDigest, requestDigest) {
+			repository.invalidateDiscovery(ctx, environment.DataEpoch)
 			return repository.replayResult(lookupContext, authorID, committed, true, nil), nil
 		}
 		return CreateResult{}, ErrCommandOutcomeUnknown
 	}
+	repository.invalidateDiscovery(ctx, environment.DataEpoch)
 	return CreateResult{Post: &record, Meta: commandMeta(commandID, event.EventID, environment.DataEpoch, record.ID, now, false, "available")}, nil
 }
 

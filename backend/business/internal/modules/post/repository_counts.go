@@ -15,7 +15,7 @@ type interactionCounts struct {
 }
 
 func (repository *MySQLRepository) WithCountCache(scope *readcache.Scope) {
-	repository.counts = readcache.New(scope, "post:counts", 5*time.Second, func(_ uint64, counts interactionCounts) bool {
+	repository.counts = readcache.New(scope, "post:counts:v1", 5*time.Second, func(_ uint64, counts interactionCounts) bool {
 		return counts.Comments != nil && counts.Likes != nil
 	})
 }
@@ -42,6 +42,9 @@ func (repository *MySQLRepository) countsEpoch(ctx context.Context) string {
 }
 
 func (repository *MySQLRepository) getCounts(ctx context.Context, epoch string, ids []uint64) (map[uint64]interactionCounts, error) {
+	if repository.counts == nil {
+		return repository.countInMySQL(ctx, epoch, ids)
+	}
 	return repository.counts.Fetch(ctx, epoch, ids, func(ctx context.Context, missing []uint64) (map[uint64]interactionCounts, error) {
 		return repository.countInMySQL(ctx, epoch, missing)
 	})

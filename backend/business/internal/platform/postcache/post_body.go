@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/post"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/readcache"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 )
 
 const (
 	postBodyVersion   = 2
-	postBodyKeyPrefix = "gopulse:post:body:v2:epoch:"
+	postBodyCacheKind = "post:body:v2"
+	postBodyKeyPrefix = "gopulse:" + postBodyCacheKind + ":epoch:"
 )
 
 var ErrInvalidPostBody = errors.New("invalid cached post body")
@@ -32,6 +34,7 @@ type PostBodyRepository struct {
 	client           Client
 	ttl              time.Duration
 	operationTimeout time.Duration
+	batch            *readcache.Cache[post.BodyKey, postBodyEnvelope]
 }
 
 type postBodyEnvelope struct {
@@ -49,7 +52,11 @@ func NewPostBodyRepository(client Client, ttl, operationTimeout time.Duration) *
 
 // PostBodyKey formats the complete v2 key without resolving any part of it.
 func PostBodyKey(key post.BodyKey) string {
-	return postBodyKeyPrefix + key.Epoch + ":post:" + strconv.FormatUint(key.PostID, 10) + ":rev:" + strconv.FormatUint(key.ContentRevision, 10)
+	return postBodyKeyPrefix + key.Epoch + ":" + postBodySuffix(key.PostID, key.ContentRevision)
+}
+
+func postBodySuffix(postID, revision uint64) string {
+	return "post:" + strconv.FormatUint(postID, 10) + ":rev:" + strconv.FormatUint(revision, 10)
 }
 
 // GetBody reads the exact epoch and revision fixed by the authoritative read context.

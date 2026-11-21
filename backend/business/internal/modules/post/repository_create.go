@@ -23,7 +23,11 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 		return *result.Post, nil
 	}
 	if repository.outbox == nil {
-		return createPost(ctx, repository.database, authorID, title, content)
+		record, err := createPost(ctx, repository.database, authorID, title, content)
+		if err == nil {
+			repository.invalidateDiscovery(ctx, "")
+		}
+		return record, err
 	}
 	commitAttemptID := correlation.NewAttemptID()
 	commitContext := ctx
@@ -57,6 +61,7 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 	if err := transaction.Commit(); err != nil {
 		return Post{}, errors.New("commit post transaction")
 	}
+	repository.invalidateDiscovery(ctx, "")
 	repository.logger.Info("post committed",
 		slog.String("event_id", event.EventID),
 		slog.Uint64("post_id", record.ID),

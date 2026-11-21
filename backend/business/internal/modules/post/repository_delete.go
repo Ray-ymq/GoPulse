@@ -64,5 +64,6 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 		return err
 	}
 	r.invalidateCounts(ctx, deletionEpoch, id)
+	r.invalidateDiscovery(ctx, deletionEpoch)
 	return nil
 }

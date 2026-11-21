@@ -41,6 +41,13 @@ func countColumns(epoch string) string {
 }
 
 func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, options ListOptions) ([]Post, error) {
+	if repository.discovery != nil && options.Limit == DefaultLimit && options.Cursor == nil && !options.Bookmarks && !options.Following && options.AuthorID == 0 {
+		return repository.listDiscovery(ctx, viewerID, options)
+	}
+	return repository.listFromMySQL(ctx, viewerID, options)
+}
+
+func (repository *MySQLRepository) listFromMySQL(ctx context.Context, viewerID uint64, options ListOptions) ([]Post, error) {
 	epoch := repository.countsEpoch(ctx)
 	query, arguments := listStatement(viewerID, options, countColumns(epoch))
 	rows, err := repository.database.QueryContext(ctx, query, arguments...)

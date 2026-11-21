@@ -284,11 +284,17 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
 		if !cfg.RedisDisabled {
-			if cfg.Redis.PostCountsCache {
-				scope := readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
-				posts.WithCountCache(scope)
-			}
 			postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
+			if cfg.Redis.PostCountsCache || cfg.Redis.DiscoveryCache {
+				scope := readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
+				if cfg.Redis.PostCountsCache {
+					posts.WithCountCache(scope)
+				}
+				if cfg.Redis.DiscoveryCache {
+					postBodyCache.WithBatch(scope)
+					posts.WithDiscoveryCache(scope, postBodyCache)
+				}
+			}
 			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
 				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
 				MaxExecutors:         cfg.Protection.ResourceRebuild,

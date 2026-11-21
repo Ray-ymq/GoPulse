@@ -57,6 +57,7 @@ type Cache[K comparable, V any] struct {
 	kind    string
 	ttl     time.Duration
 	valid   func(K, V) bool
+	suffix  func(K) string
 	mu      sync.Mutex
 	pending map[string]*load[V]
 }
@@ -69,7 +70,11 @@ type load[V any] struct {
 }
 
 func New[K comparable, V any](scope *Scope, kind string, ttl time.Duration, valid func(K, V) bool) *Cache[K, V] {
-	return &Cache[K, V]{scope: scope, kind: kind, ttl: ttl, valid: valid, pending: make(map[string]*load[V])}
+	return NewWithKeySuffix(scope, kind, ttl, valid, func(id K) string { return fmt.Sprint(id) })
+}
+
+func NewWithKeySuffix[K comparable, V any](scope *Scope, kind string, ttl time.Duration, valid func(K, V) bool, suffix func(K) string) *Cache[K, V] {
+	return &Cache[K, V]{scope: scope, kind: kind, ttl: ttl, valid: valid, suffix: suffix, pending: make(map[string]*load[V])}
 }
 
 func (cache *Cache[K, V]) Epoch(ctx context.Context) (string, error) {
@@ -77,7 +82,7 @@ func (cache *Cache[K, V]) Epoch(ctx context.Context) (string, error) {
 }
 
 func (cache *Cache[K, V]) key(epoch string, id K) string {
-	return fmt.Sprintf("gopulse:%s:v1:epoch:%s:%v", cache.kind, epoch, id)
+	return "gopulse:" + cache.kind + ":epoch:" + epoch + ":" + cache.suffix(id)
 }
 
 func (cache *Cache[K, V]) Fetch(ctx context.Context, epoch string, ids []K, source func(context.Context, []K) (map[K]V, error)) (map[K]V, error) {
