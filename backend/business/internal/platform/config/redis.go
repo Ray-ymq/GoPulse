@@ -20,6 +20,7 @@ const (
 )
 
 type RedisConfig struct {
+	PostCountsCache  bool
 	Host             string
 	Port             int
 	Password         string

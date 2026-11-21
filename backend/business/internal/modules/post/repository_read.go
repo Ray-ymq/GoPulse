@@ -262,15 +262,18 @@ func (repository *MySQLRepository) FindViewerProjection(ctx context.Context, exp
 
 	var epoch, status string
 	var author, revision uint64
-	err = repository.database.QueryRowContext(ctx, `
+	countsEpoch := ""
+	if repository.counts != nil {
+		countsEpoch = expected.Epoch
+	}
+	query := fmt.Sprintf(`
  SELECT e.data_epoch,e.status,p.author_id,p.content_revision,u.id,u.username,u.display_name,
- (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id),
- (SELECT COUNT(*) FROM post_likes l WHERE l.post_id=p.id),
+ %s,
  EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.user_id=?),
  EXISTS(SELECT 1 FROM user_follows f WHERE f.followed_id=p.author_id AND f.follower_id=?),
  EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id=p.id AND b.user_id=?)
- FROM business_runtime_state e JOIN posts p ON p.id=? JOIN users u ON u.id=p.author_id WHERE e.singleton=1`,
-		viewer, viewer, viewer, expected.PostID).Scan(&epoch, &status, &author, &revision, &projection.Author.ID, &projection.Author.Username, &projection.Author.DisplayName, &projection.CommentCount, &projection.LikeCount, &projection.Liked, &projection.Following, &projection.Bookmarked)
+ FROM business_runtime_state e JOIN posts p ON p.id=? JOIN users u ON u.id=p.author_id WHERE e.singleton=1`, countColumns(countsEpoch))
+	err = repository.database.QueryRowContext(ctx, query, viewer, viewer, viewer, expected.PostID).Scan(&epoch, &status, &author, &revision, &projection.Author.ID, &projection.Author.Username, &projection.Author.DisplayName, &projection.CommentCount, &projection.LikeCount, &projection.Liked, &projection.Following, &projection.Bookmarked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ViewerProjection{}, ErrNotFound
 	}
@@ -279,6 +282,14 @@ func (repository *MySQLRepository) FindViewerProjection(ctx context.Context, exp
 	}
 	if epoch != expected.Epoch || status != businessstate.StatusReady || author != expected.AuthorID || revision != expected.ContentRevision {
 		return ViewerProjection{}, ErrReadContextChanged
+	}
+	if countsEpoch != "" {
+		values, err := repository.getCounts(ctx, countsEpoch, []uint64{expected.PostID})
+		if err != nil {
+			return ViewerProjection{}, err
+		}
+		counts := values[expected.PostID]
+		projection.CommentCount, projection.LikeCount = *counts.Comments, *counts.Likes
 	}
 	return projection, nil
 }

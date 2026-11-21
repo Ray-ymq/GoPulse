@@ -12,12 +12,18 @@ type postExistence interface {
 }
 
 type Service struct {
-	repository Repository
-	posts      postExistence
+	repository       Repository
+	posts            postExistence
+	invalidateCounts func(context.Context, uint64)
 }
 
 func NewService(repository Repository, posts postExistence) *Service {
 	return &Service{repository: repository, posts: posts}
+}
+
+func (service *Service) WithCountInvalidation(invalidate func(context.Context, uint64)) *Service {
+	service.invalidateCounts = invalidate
+	return service
 }
 
 func (service *Service) Create(ctx context.Context, postID, authorID uint64, input CreateInput) (Comment, error) {
@@ -35,6 +41,9 @@ func (service *Service) Create(ctx context.Context, postID, authorID uint64, inp
 	record, err := service.repository.Create(ctx, postID, authorID, normalized.Content)
 	if err != nil {
 		return Comment{}, apperror.WrapInternal(err)
+	}
+	if service.invalidateCounts != nil {
+		service.invalidateCounts(ctx, postID)
 	}
 	return record, nil
 }

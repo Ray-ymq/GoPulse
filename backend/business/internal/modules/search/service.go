@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/post"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/readcache"
 	"github.com/Ray-ymq/GoPulse/backend/internal/shared/apperror"
 )
 
@@ -260,7 +261,7 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 			}
 		}
 
-		byID, err := service.hydrate(ctx, viewerID, ids)
+		byID, err := service.hydrate(readcache.WithEpoch(ctx, dataEpoch), viewerID, ids)
 		if err != nil {
 			return Page{}, err
 		}

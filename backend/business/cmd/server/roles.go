@@ -28,6 +28,7 @@ import (
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/postcache"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/rabbitmq"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/ratelimit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/readcache"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform/resourcebudget"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http"
@@ -283,6 +284,10 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
 		if !cfg.RedisDisabled {
+			if cfg.Redis.PostCountsCache {
+				scope := readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
+				posts.WithCountCache(scope)
+			}
 			postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
 				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
@@ -302,10 +307,10 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		postHandler := posthttp.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-		commentService := comment.NewService(comments, postService)
+		commentService := comment.NewService(comments, postService).WithCountInvalidation(posts.InvalidateCounts)
 		commentHandler := commenthttp.NewHandler(commentService, logger)
 		likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-		likeService := like.NewService(likes, postService)
+		likeService := like.NewService(likes, postService).WithCountInvalidation(posts.InvalidateCounts)
 		likeHandler := likehttp.NewHandler(likeService, logger)
 		notifications, notificationErr := notification.NewRepository(mysqlClient.DB())
 		if notificationErr != nil {

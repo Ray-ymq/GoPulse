@@ -19,8 +19,7 @@ SELECT
     u.id,
     u.username,
     u.display_name,
-    (SELECT COUNT(*) FROM comments AS c WHERE c.post_id = p.id) AS comment_count,
-    (SELECT COUNT(*) FROM post_likes AS likes WHERE likes.post_id = p.id) AS like_count,
+    %s,
     EXISTS(
         SELECT 1
         FROM post_likes AS my_like
@@ -32,8 +31,18 @@ SELECT
 FROM posts AS p %s
 INNER JOIN users AS u ON u.id = p.author_id`
 
+const postCountColumns = "(SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id), (SELECT COUNT(*) FROM post_likes l WHERE l.post_id=p.id)"
+
+func countColumns(epoch string) string {
+	if epoch != "" {
+		return "0, 0"
+	}
+	return postCountColumns
+}
+
 func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, options ListOptions) ([]Post, error) {
-	query, arguments := listStatement(viewerID, options)
+	epoch := repository.countsEpoch(ctx)
+	query, arguments := listStatement(viewerID, options, countColumns(epoch))
 	rows, err := repository.database.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("list posts: %w", err)
@@ -51,10 +60,13 @@ func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, op
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list posts: %w", err)
 	}
-	return posts, nil
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return posts, repository.hydrateCounts(ctx, epoch, posts)
 }
 
-func listStatement(viewerID uint64, options ListOptions) (string, []any) {
+func listStatement(viewerID uint64, options ListOptions, counts string) (string, []any) {
 	timestamp := "p.created_at"
 	join := ""
 	if !options.Bookmarks && !options.Following && options.AuthorID == 0 {
@@ -83,10 +95,10 @@ func listStatement(viewerID uint64, options ListOptions) (string, []any) {
 	arguments = append(arguments, options.Limit+1)
 	if options.Following && !options.Bookmarks {
 		page := "SELECT p.id FROM posts AS p " + join + filter + order + " LIMIT ?"
-		query := fmt.Sprintf(postListReadSelect, timestamp, "INNER JOIN ("+page+") AS feed_page ON feed_page.id=p.id") + order
+		query := fmt.Sprintf(postListReadSelect, counts, timestamp, "INNER JOIN ("+page+") AS feed_page ON feed_page.id=p.id") + order
 		return query, arguments
 	}
-	query := fmt.Sprintf(postListReadSelect, timestamp, join) + filter + order + " LIMIT ?"
+	query := fmt.Sprintf(postListReadSelect, counts, timestamp, join) + filter + order + " LIMIT ?"
 	return query, arguments
 }
 
@@ -106,7 +118,8 @@ func (repository *MySQLRepository) FindMany(ctx context.Context, viewerID uint64
 		placeholders[index] = "?"
 		arguments = append(arguments, identifier)
 	}
-	query := fmt.Sprintf(postListReadSelect, "p.created_at", "") + `
+	epoch := repository.countsEpoch(ctx)
+	query := fmt.Sprintf(postListReadSelect, countColumns(epoch), "p.created_at", "") + `
 WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
 	rows, err := repository.database.QueryContext(ctx, query, arguments...)
 	if err != nil {
@@ -132,5 +145,8 @@ WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
 		}
 		ordered = append(ordered, record)
 	}
-	return ordered, nil
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return ordered, repository.hydrateCounts(ctx, epoch, ordered)
 }

@@ -12,8 +12,9 @@ type postExistence interface {
 }
 
 type Service struct {
-	repository Repository
-	posts      postExistence
+	repository       Repository
+	posts            postExistence
+	invalidateCounts func(context.Context, uint64)
 }
 
 func NewService(repository Repository, posts postExistence) *Service {
@@ -21,12 +22,24 @@ func NewService(repository Repository, posts postExistence) *Service {
 }
 
 // Like ensures the authenticated user has exactly one like fact for the post.
+func (service *Service) WithCountInvalidation(invalidate func(context.Context, uint64)) *Service {
+	service.invalidateCounts = invalidate
+	return service
+}
+
 func (service *Service) Like(ctx context.Context, postID, userID uint64) error {
 	if err := service.posts.RequireExists(ctx, postID); err != nil {
 		return err
 	}
-	if err := service.repository.Create(ctx, postID, userID); err != nil && !errors.Is(err, ErrAlreadyExists) {
+	err := service.repository.Create(ctx, postID, userID)
+	if errors.Is(err, ErrAlreadyExists) {
+		return nil
+	}
+	if err != nil {
 		return apperror.WrapInternal(err)
+	}
+	if service.invalidateCounts != nil {
+		service.invalidateCounts(ctx, postID)
 	}
 	return nil
 }
@@ -38,6 +51,9 @@ func (service *Service) Unlike(ctx context.Context, postID, userID uint64) error
 	}
 	if err := service.repository.Delete(ctx, postID, userID); err != nil {
 		return apperror.WrapInternal(err)
+	}
+	if service.invalidateCounts != nil {
+		service.invalidateCounts(ctx, postID)
 	}
 	return nil
 }

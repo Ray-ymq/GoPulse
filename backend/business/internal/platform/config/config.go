@@ -96,6 +96,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	redisPoolSize := 0
 	redisPoolTimeout := time.Duration(0)
 	postDetailTTL := defaultRedisPostDetailTTL
+	var postCountCache bool
 	operationTimeout := defaultRedisOperationTimeout
 	redisDisabled, err := booleanValue(lookup, "BACKEND_REDIS_DISABLED", false)
 	if err != nil {
@@ -103,6 +104,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	}
 	protection := ProtectionConfig{}
 	if serviceRole.RunsBusiness() && !redisDisabled {
+		postCountCache, err = booleanValue(lookup, "BACKEND_POST_COUNTS_CACHE_ENABLED", false)
+		if err != nil {
+			return Config{}, err
+		}
 		redisHost = valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost)
 		if err := validateDependencyHost(runtimeMode, "REDIS_HOST", redisHost); err != nil {
 			return Config{}, err
@@ -335,6 +340,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			PoolSize:         redisPoolSize,
 			PoolTimeout:      redisPoolTimeout,
 			PostDetailTTL:    postDetailTTL,
+			PostCountsCache:  postCountCache,
 			OperationTimeout: operationTimeout,
 		},
 		RabbitMQURL:   rabbitMQURL,

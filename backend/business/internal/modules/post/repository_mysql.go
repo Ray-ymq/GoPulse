@@ -9,6 +9,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/async/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/modules/businessstate"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/readcache"
 )
 
 type database interface {
@@ -32,6 +33,7 @@ type MySQLRepository struct {
 	database database
 	outbox   outbox.Writer
 	state    *businessstate.Repository
+	counts   *readcache.Cache[uint64, interactionCounts]
 	clock    func() time.Time
 	logger   *slog.Logger
 }

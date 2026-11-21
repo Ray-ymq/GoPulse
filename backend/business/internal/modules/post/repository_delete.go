@@ -60,7 +60,9 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 	if err != nil {
 		return err
 	}
-	err = tx.Commit()
-
-	return err
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	r.invalidateCounts(ctx, deletionEpoch, id)
+	return nil
 }

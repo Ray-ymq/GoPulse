@@ -255,3 +255,11 @@ func isLowerHex(value string) bool {
 	}
 	return value != ""
 }
+
+func (repository *Repository) ReadyEpoch(ctx context.Context) (string, error) {
+	var epoch string
+	if err := repository.database.QueryRowContext(ctx, "SELECT data_epoch FROM business_runtime_state WHERE singleton=1 AND status='ready'").Scan(&epoch); err != nil {
+		return "", fmt.Errorf("读取就绪的数据 epoch: %w", err)
+	}
+	return epoch, ValidateEpoch(epoch)
+}

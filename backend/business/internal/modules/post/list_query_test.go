@@ -17,7 +17,7 @@ func TestListQueriesUseTheirOwnFiltersAndCursorOrder(t *testing.T) {
 		{"bookmark", ListOptions{Limit: 2, Bookmarks: true}, "ORDER BY b.created_at DESC, p.id DESC", "FORCE INDEX"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			query, args := listStatement(4, tc.options)
+			query, args := listStatement(4, tc.options, postCountColumns)
 			if !strings.Contains(query, tc.want) || strings.Contains(query, tc.absent) || strings.Count(query, "?") != len(args) {
 				t.Fatalf("query=%s args=%v", query, args)
 			}
