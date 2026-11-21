@@ -284,7 +284,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
 		var cacheScope *readcache.Scope
-		if redisClient != nil && (cfg.Redis.PostCountsCache || cfg.Redis.DiscoveryCache || cfg.Redis.CommentPageCache) {
+		if redisClient != nil && (cfg.Redis.PostCountsCache || cfg.Redis.DiscoveryCache || cfg.Redis.CommentPageCache || cfg.Redis.PublicProfileCache) {
 			cacheScope = readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
 		}
 		if !cfg.RedisDisabled {
@@ -337,7 +337,11 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 
 		routes.AdminUsers = adminhttp.NewHandler(users)
 		routes.Auth = authHandler
-		routes.Users = userhttp.NewHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService, users)
+		profiles := user.NewProfileService(users, cfg.Auth.JWTSecret)
+		if cfg.Redis.PublicProfileCache {
+			profiles.WithPublicProfileCache(cacheScope)
+		}
+		routes.Users = userhttp.NewHandler(profiles, postService, users)
 		routes.Posts = postHandler
 		routes.Comments = commentHandler
 		routes.Likes = likeHandler

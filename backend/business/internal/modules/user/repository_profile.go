@@ -2,8 +2,39 @@ package user
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"strings"
 )
+
+func (r *MySQLRepository) readProfileContext(ctx context.Context, username string, viewer uint64) (profileReadContext, error) {
+	var read profileReadContext
+	err := r.database.QueryRowContext(ctx, `
+SELECT e.data_epoch, u.id, u.username,
+       EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id=? AND f.followed_id=u.id)
+FROM business_runtime_state e JOIN users u ON u.username=?
+WHERE e.singleton=1 AND e.status='ready'`, viewer, username).Scan(&read.epoch, &read.id, &read.username, &read.following)
+	if err != nil {
+		return profileReadContext{}, fmt.Errorf("读取公开资料的访问者状态: %w", err)
+	}
+	return read, nil
+}
+
+func (r *MySQLRepository) findPublicProfile(ctx context.Context, read profileReadContext) (publicProfile, error) {
+	var record publicProfile
+	err := r.database.QueryRowContext(ctx, `
+SELECT u.id, u.username, u.display_name, u.bio, u.created_at
+FROM users u JOIN business_runtime_state e ON e.singleton=1 AND e.status='ready' AND e.data_epoch=?
+WHERE u.id=? AND u.username=?`, read.epoch, read.id, read.username).Scan(&record.ID, &record.Username, &record.DisplayName, &record.Bio, &record.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return publicProfile{}, ErrNotFound
+	}
+	if err != nil {
+		return publicProfile{}, fmt.Errorf("查询公开资料: %w", err)
+	}
+	return record, nil
+}
 
 func (r *MySQLRepository) UpdateProfile(ctx context.Context, id uint64, name, bio string) (User, error) {
 	_, err := r.database.ExecContext(ctx, "UPDATE users SET display_name = ?, bio = ? WHERE id = ?", name, bio, id)

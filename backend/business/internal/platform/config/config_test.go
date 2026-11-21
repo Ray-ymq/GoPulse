@@ -475,3 +475,38 @@ func TestRedisDisabledDoesNotRequireOrParseRedisConnection(t *testing.T) {
 		t.Fatal("无效布尔值未被拒绝")
 	}
 }
+
+func TestReadCacheSwitchesAreIndependentAndDefaultOff(t *testing.T) {
+	switches := []string{
+		"BACKEND_POST_COUNTS_CACHE_ENABLED",
+		"BACKEND_DISCOVERY_CACHE_ENABLED",
+		"BACKEND_COMMENT_PAGE_CACHE_ENABLED",
+		"BACKEND_PUBLIC_PROFILE_CACHE_ENABLED",
+	}
+	flags := func(cfg Config) [4]bool {
+		return [4]bool{cfg.Redis.PostCountsCache, cfg.Redis.DiscoveryCache, cfg.Redis.CommentPageCache, cfg.Redis.PublicProfileCache}
+	}
+	check := func(env map[string]string, want [4]bool) {
+		t.Helper()
+		cfg, err := LoadFrom(mapLookup(env))
+		if err != nil || flags(cfg) != want {
+			t.Fatalf("开关状态为 %v，预期为 %v，错误为 %v", flags(cfg), want, err)
+		}
+	}
+	check(requiredEnvironment(), [4]bool{})
+	for i, name := range switches {
+		t.Run(name, func(t *testing.T) {
+			env := requiredEnvironment()
+			env[name] = "true"
+			var want [4]bool
+			want[i] = true
+			check(env, want)
+		})
+	}
+	env := requiredEnvironment()
+	for _, name := range switches {
+		env[name] = "true"
+	}
+	env["BACKEND_REDIS_DISABLED"] = "true"
+	check(env, [4]bool{})
+}

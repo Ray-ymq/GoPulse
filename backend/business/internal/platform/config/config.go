@@ -96,7 +96,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	redisPoolSize := 0
 	redisPoolTimeout := time.Duration(0)
 	postDetailTTL := defaultRedisPostDetailTTL
-	var postCountCache, discoveryCache, commentPageCache bool
+	var postCountCache, discoveryCache, commentPageCache, publicProfileCache bool
 	operationTimeout := defaultRedisOperationTimeout
 	redisDisabled, err := booleanValue(lookup, "BACKEND_REDIS_DISABLED", false)
 	if err != nil {
@@ -104,6 +104,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	}
 	protection := ProtectionConfig{}
 	if serviceRole.RunsBusiness() && !redisDisabled {
+		publicProfileCache, err = booleanValue(lookup, "BACKEND_PUBLIC_PROFILE_CACHE_ENABLED", false)
+		if err != nil {
+			return Config{}, err
+		}
 		commentPageCache, err = booleanValue(lookup, "BACKEND_COMMENT_PAGE_CACHE_ENABLED", false)
 		if err != nil {
 			return Config{}, err
@@ -341,17 +345,18 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		},
 		RedisDisabled: redisDisabled,
 		Redis: RedisConfig{
-			Host:             redisHost,
-			Port:             redisPort,
-			Password:         redisPassword,
-			DB:               redisDB,
-			PoolSize:         redisPoolSize,
-			PoolTimeout:      redisPoolTimeout,
-			PostDetailTTL:    postDetailTTL,
-			PostCountsCache:  postCountCache,
-			DiscoveryCache:   discoveryCache,
-			CommentPageCache: commentPageCache,
-			OperationTimeout: operationTimeout,
+			Host:               redisHost,
+			Port:               redisPort,
+			Password:           redisPassword,
+			DB:                 redisDB,
+			PoolSize:           redisPoolSize,
+			PoolTimeout:        redisPoolTimeout,
+			PostDetailTTL:      postDetailTTL,
+			PostCountsCache:    postCountCache,
+			DiscoveryCache:     discoveryCache,
+			CommentPageCache:   commentPageCache,
+			PublicProfileCache: publicProfileCache,
+			OperationTimeout:   operationTimeout,
 		},
 		RabbitMQURL:   rabbitMQURL,
 		Outbox:        outboxConfig,

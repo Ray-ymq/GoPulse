@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/readcache"
 	"github.com/Ray-ymq/GoPulse/backend/internal/shared/apperror"
 )
 
@@ -27,8 +28,9 @@ type ProfileRepository interface {
 }
 
 type ProfileService struct {
-	repository ProfileRepository
-	cursorKey  []byte
+	repository     ProfileRepository
+	cursorKey      []byte
+	publicProfiles *readcache.Cache[string, publicProfile]
 }
 
 func NewProfileService(repository ProfileRepository, secret string) *ProfileService {
@@ -37,6 +39,11 @@ func NewProfileService(repository ProfileRepository, secret string) *ProfileServ
 }
 
 func (s *ProfileService) Get(ctx context.Context, username string, viewer uint64) (Profile, error) {
+	if s.publicProfiles != nil {
+		if record, ok := s.cachedProfile(ctx, username, viewer); ok {
+			return record, nil
+		}
+	}
 	record, err := s.repository.FindByUsername(ctx, username)
 	if err != nil {
 		return Profile{}, profileError(err)
@@ -61,6 +68,9 @@ func (s *ProfileService) Update(ctx context.Context, viewer uint64, input Profil
 	record, err := s.repository.UpdateProfile(ctx, viewer, name, bio)
 	if err != nil {
 		return Profile{}, profileError(err)
+	}
+	if s.publicProfiles != nil {
+		s.publicProfiles.Invalidate(ctx, "", normalizedProfileKey(record.Username))
 	}
 	p := profile(record, viewer)
 	if r, ok := s.repository.(interface {
