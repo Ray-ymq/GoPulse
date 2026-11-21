@@ -94,6 +94,7 @@ func TestFetchCoalescesAnOverlappingBatchAndKeepsOriginalExpiry(t *testing.T) {
 			_, err := cache.Fetch(ctx, testEpoch, []int{1}, func(_ context.Context, _ []int) (map[int]int, error) {
 				started <- time.Now()
 				<-release
+				time.Sleep(20 * time.Millisecond)
 				return map[int]int{1: 1}, nil
 			})
 			first <- err

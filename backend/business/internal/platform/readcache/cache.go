@@ -132,6 +132,7 @@ func (cache *Cache[K, V]) Fetch(ctx context.Context, epoch string, ids []K, sour
 	}
 	cache.mu.Unlock()
 
+	// 先完成本批次负责回源的键，再等待其他批次完成剩余键。
 	if len(owned) != 0 {
 		cache.fill(ctx, epoch, owned, waiting, source, readErr == nil)
 	}
@@ -180,6 +181,7 @@ func (cache *Cache[K, V]) fill(ctx context.Context, epoch string, owned []K, wai
 	var err error
 	select {
 	case cache.scope.slots <- struct{}{}:
+		// 缓存有效期包含回源用时。
 		expires := time.Now().Add(cache.ttl)
 		values, err = source(ctx, owned)
 		<-cache.scope.slots

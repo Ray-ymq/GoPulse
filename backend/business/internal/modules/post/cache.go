@@ -76,8 +76,7 @@ type ReadContextRepository interface {
 	FindDynamic(context.Context, uint64, uint64) (DynamicProjection, error)
 }
 
-// DynamicProjection is intentionally separate from Body. Counts and author
-// profile values are authoritative MySQL reads for every detail response.
+// DynamicProjection 保存可变的作者摘要和互动计数。详情请求将它们与版本化正文组装。
 type DynamicProjection struct {
 	Author       PublicAuthor
 	CommentCount uint64
@@ -91,8 +90,7 @@ type PublicAuthor struct {
 	DisplayName string `json:"display_name"`
 }
 
-// PublicProjection assembles public database fields for a detail response.
-// Only Body is stored in the shared cache.
+// PublicProjection 组装详情响应的公开字段。正文和互动计数各自使用独立的缓存键。
 type PublicProjection struct {
 	EditedAt        *time.Time   `json:"edited_at"`
 	ContentRevision uint64       `json:"content_revision"`

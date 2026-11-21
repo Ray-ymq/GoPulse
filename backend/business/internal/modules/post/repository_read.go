@@ -272,8 +272,7 @@ func FindAuthorIDForUpdate(ctx context.Context, database RowQueryer, postID uint
 	return authorID, nil
 }
 
-// FindViewerProjection rechecks the authoritative key in the same SQL snapshot
-// as counts, author data and viewer relationships.
+// FindViewerProjection 在读取作者和访问者状态时核对正文版本和数据 epoch。启用计数缓存时，用同一 epoch 读取计数。
 func (repository *MySQLRepository) FindViewerProjection(ctx context.Context, expected ReadContext, viewer uint64) (projection ViewerProjection, err error) {
 
 	var epoch, status string
