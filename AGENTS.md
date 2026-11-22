@@ -53,6 +53,12 @@ make build MODULE=frontend/web
 
 前端首次验证前执行 `make -C frontend/web install`。Go CI 命令使用 `.run/ci/go.work`，不得覆盖开发者的根 `go.work`。真实依赖联调需另行执行，不能用单元测试结果代替。
 
+### 本地镜像重建
+
+- 每次完成涉及系统运行的改动后，必须从仓库根目录主动执行 `make container-build`。触发范围包括前后端代码、应用依赖、数据库迁移、镜像构建文件和容器部署配置。修改 Compose 配置时，同时执行 `make container-config`。
+- `make container-build` 重建两个项目镜像。`gopulse/web` 供 `web` 使用。`gopulse/backend` 供 `api`、`worker`、`indexer`、`migrate` 和 `search-init` 共用。MySQL、Redis、RabbitMQ 和 Elasticsearch 使用 Compose 指定的上游镜像。
+- 构建后，使用 `docker image inspect` 按本次构建所用标签核对两个镜像。任务完成时记录构建结果和镜像 ID。构建失败时，说明受影响的镜像和阻塞原因。
+
 ## Git 与协作约定
 
 - 修改代码、配置、文档或其他文件后，必须完成必要验证并创建 Git commit，不能只将修改留在工作区。
