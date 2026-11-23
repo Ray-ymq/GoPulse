@@ -52,6 +52,8 @@ make container-up
 
 `container-build` 只构建两个项目镜像，不要求配置运行凭据或提供证书。`container-config` 只校验 Compose 配置，不会输出解析后的敏感值。启动前仍需确认凭据、证书文件和主机资源已准备好。
 
+常驻容器的默认重启策略为 `no`。主机重启后，按需运行 `make container-up` 启动服务。进程退出后也需手动恢复。部署需要 Docker 在启动后恢复服务时，在 `.env` 中设置 `GOPULSE_RESTART_POLICY=unless-stopped`。迁移和搜索初始化任务始终使用 `no`。已有部署需运行 `make container-up`，让 Compose 应用新策略。
+
 ## 容量复测覆盖配置
 
 默认 `compose.yml` 保持当前运行配置。容量复测可以显式追加覆盖文件。`compose.capacity-es.yml` 将 Elasticsearch 设置为 6 vCPU、6 GiB 内存和 3 GiB heap。`compose.capacity-cache-db.yml` 将 MySQL 设置为 3.5 GiB 容器上限和 2 GiB InnoDB buffer pool，并将 Redis 设置为 256 MiB 容器上限、200 MiB `maxmemory` 和 `noeviction` 策略。
@@ -86,7 +88,7 @@ docker compose ps -a
 docker compose logs --tail=100 api worker indexer
 ```
 
-探针使用 `/ready` 判断业务进程就绪；Nginx 探针使用 HTTP `/health`。`unhealthy` 不会触发 Docker 自动重启，`restart: unless-stopped` 处理进程退出。需要持续监测状态并按故障原因处理，不能用健康检查代替恢复机制。
+探针使用 `/ready` 判断业务进程就绪；Nginx 探针使用 HTTP `/health`。`unhealthy` 不会触发 Docker 自动重启。需要持续监测状态并按故障原因处理，不能用健康检查代替恢复机制。
 
 RabbitMQ 在启动宽限期内每 5 秒探测 TCP 端口 `5672`，正常运行时每 60 秒探测一次。计入重试的探测连续失败 3 次后，Docker 将容器标记为 `unhealthy`。
 

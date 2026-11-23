@@ -1,5 +1,7 @@
 name: gopulse
 
+x-restart-policy: &restart-policy "${GOPULSE_RESTART_POLICY:-no}"
+
 x-healthcheck: &healthcheck
   interval: 10s
   timeout: 5s
@@ -40,7 +42,7 @@ x-search-env: &search-env
 
 x-app: &app
   image: gopulse/backend:${GOPULSE_IMAGE_TAG:?请使用 make container-build 或设置 GOPULSE_IMAGE_TAG}
-  restart: unless-stopped
+  restart: *restart-policy
   read_only: true
   tmpfs:
     - /tmp:size=16m,mode=1777
@@ -53,7 +55,7 @@ x-app: &app
 services:
   web:
     image: gopulse/web:${GOPULSE_IMAGE_TAG:?请设置 GOPULSE_IMAGE_TAG}
-    restart: unless-stopped
+    restart: *restart-policy
     cpus: "0.5"
     mem_limit: 256m
     environment:
@@ -218,7 +220,7 @@ services:
 
   mysql:
     image: mysql:8.4.13
-    restart: unless-stopped
+    restart: *restart-policy
     cpus: "3"
     mem_limit: 2.5g
     environment:
@@ -243,7 +245,7 @@ services:
 
   redis:
     image: redis:7.2.17-alpine
-    restart: unless-stopped
+    restart: *restart-policy
     cpus: "1"
     mem_limit: 2g
     environment:
@@ -268,7 +270,7 @@ services:
   rabbitmq:
     image: rabbitmq:4.3.7-alpine
     hostname: rabbitmq
-    restart: unless-stopped
+    restart: *restart-policy
     cpus: "2.5"
     mem_limit: 512m
     environment:
@@ -288,7 +290,7 @@ services:
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
-    restart: unless-stopped
+    restart: *restart-policy
     cpus: "3"
     mem_limit: 4.5g
     mem_swappiness: 0
