@@ -1,0 +1,21 @@
+# 容量复测覆盖配置。
+# 仅在命令中显式加入本文件时生效：
+# docker compose -f compose.yml -f compose.capacity-cache-db.yml config
+
+services:
+  mysql:
+    mem_limit: ${CAPACITY_MYSQL_MEM_LIMIT:-3.5g}
+    memswap_limit: ${CAPACITY_MYSQL_MEMSWAP_LIMIT:-3.5g}
+    command:
+      - --innodb-buffer-pool-size=${CAPACITY_MYSQL_INNODB_BUFFER_POOL_SIZE:-2G}
+
+  redis:
+    mem_limit: ${CAPACITY_REDIS_MEM_LIMIT:-256m}
+    memswap_limit: ${CAPACITY_REDIS_MEMSWAP_LIMIT:-256m}
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        --maxmemory "${CAPACITY_REDIS_MAXMEMORY:-200mb}"
+        --maxmemory-policy "${CAPACITY_REDIS_MAXMEMORY_POLICY:-noeviction}"

@@ -1,0 +1,8 @@
+**
+!backend/
+!backend/business/
+!backend/business/**
+**/.env*
+**/bin/
+**/coverage.out
+**/*.test

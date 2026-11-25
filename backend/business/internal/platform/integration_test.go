@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/redisclient"
+	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
 func TestIntegrationDependenciesAreAvailable(t *testing.T) {
@@ -24,7 +25,7 @@ func TestIntegrationDependenciesAreAvailable(t *testing.T) {
 		t.Fatalf("MySQL dependency is unavailable: %v", err)
 	}
 
-	redisClient := NewRedis(cfg.Redis)
+	redisClient := redisclient.NewRedis(cfg.Redis)
 	defer redisClient.Close()
 	if err := redisClient.Check(ctx); err != nil {
 		t.Fatalf("Redis dependency is unavailable: %v", err)

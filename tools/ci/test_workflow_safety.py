@@ -8,13 +8,13 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 class WorkflowSafetyTests(unittest.TestCase):
-    def test_only_module_ci_is_installed(self):
+    def test_module_and_frontend_ci_are_installed(self):
         workflows = sorted(
             path.relative_to(ROOT).as_posix()
             for path in (ROOT / ".github" / "workflows").glob("*")
             if path.is_file()
         )
-        self.assertEqual(workflows, [".github/workflows/ci.yml"])
+        self.assertEqual(workflows, [".github/workflows/ci.yml", ".github/workflows/frontend.yml"])
 
     def test_only_auto_pr_job_can_write_pull_requests(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -56,12 +56,20 @@ class WorkflowSafetyTests(unittest.TestCase):
             self.assertIn("github.event_name != 'push' || github.event.deleted != true", section)
 
     def test_all_checkouts_disable_persisted_credentials(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        checkout_count = len(re.findall(r"(?m)^\s*- uses: actions/checkout@", workflow))
-        disabled_count = len(re.findall(r"(?m)^\s+persist-credentials: false\s*$", workflow))
+        for path in (ROOT / ".github" / "workflows").glob("*.yml"):
+            workflow = path.read_text(encoding="utf-8")
+            checkout_count = len(re.findall(r"(?m)^\s*- uses: actions/checkout@", workflow))
+            disabled_count = len(re.findall(r"(?m)^\s+persist-credentials: false\s*$", workflow))
+            self.assertGreater(checkout_count, 0, path.name)
+            self.assertEqual(disabled_count, checkout_count, path.name)
 
-        self.assertGreater(checkout_count, 0)
-        self.assertEqual(disabled_count, checkout_count)
+    def test_frontend_ci_stays_read_only(self):
+        workflow = (ROOT / ".github/workflows/frontend.yml").read_text(encoding="utf-8")
+        self.assertRegex(workflow, r"(?m)^permissions:\n  contents: read$")
+        self.assertNotRegex(workflow, r"(?m)^\s*\S+:\s*write\s*$")
+        self.assertNotIn("pull_request_target", workflow)
+        self.assertNotIn("secrets.", workflow)
+        self.assertNotRegex(workflow, r"\bgit\s+(?:push|tag|merge|rebase)\b")
 
 
 if __name__ == "__main__":

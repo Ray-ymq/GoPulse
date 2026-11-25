@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
+
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/elastic/go-elasticsearch/v9"
 )
@@ -35,13 +35,6 @@ func NewElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
 		return nil, errors.New("elasticsearch client purpose must be search")
 	}
 	return newElasticsearch(cfg, "search")
-}
-
-func NewObservabilityElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
-	if cfg.Purpose != "observability" {
-		return nil, errors.New("elasticsearch client purpose must be observability")
-	}
-	return newElasticsearch(cfg, "observability")
 }
 
 func newElasticsearch(cfg config.ElasticsearchConfig, purpose string) (*Elasticsearch, error) {
@@ -75,11 +68,7 @@ func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request)
 	}
 	operationContext, cancel := context.WithTimeout(ctx, client.timeout)
 	response, err := client.client.Perform(request.WithContext(operationContext))
-	observedErr := err
-	if response != nil && response.StatusCode >= 500 {
-		observedErr = errors.New("elasticsearch unavailable")
-	}
-	instrumentation.Dependency("elasticsearch", observedErr)
+
 	if err != nil {
 		cancel()
 		return nil, err
@@ -89,9 +78,12 @@ func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request)
 }
 
 func (client *Elasticsearch) Check(ctx context.Context) error {
-	request, err := runtimekit.NewRequest(ctx, http.MethodGet, "/_cluster/health?wait_for_status=yellow&timeout=1s", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "/_cluster/health?wait_for_status=yellow&timeout=1s", nil)
 	if err != nil {
 		return err
+	}
+	if id := logging.RequestID(ctx); logging.ValidRequestID(id) {
+		request.Header.Set("X-Request-ID", id)
 	}
 	response, err := client.Perform(ctx, request)
 	if err != nil {

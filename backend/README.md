@@ -1,159 +1,219 @@
 # GoPulse 后端
 
-`backend/` 包含业务系统、可观测系统和共享运行时能力。业务服务、可观测服务及 Go 采集插件分别维护各自的 `go.mod` 和 `Makefile`。
+GoPulse 后端提供认证、用户资料、关注、帖子、评论、点赞、收藏、搜索、异步通知和超级管理员角色管理。当前只有一个 Go 模块：`business/`，使用 Go 1.26，模块名称为 `github.com/Ray-ymq/GoPulse/backend`。
 
-本文中的命令均在仓库根目录执行。模块清单以[根 Makefile](../Makefile) 的 `GO_MODULES` 为准，可通过 `make list-go-modules` 查看。
+模块清单以根 [Makefile](../Makefile) 的 `GO_MODULES` 为准。HTTP 接口以 [OpenAPI](business/api/openapi.yaml) 为准。
 
-## 目录结构
+浏览器概览见 [后端说明页](../docs/index.html)。配置、迁移、运行与维护步骤以本文为准。
+
+## 目录树
+
+以下目录树列出主要源码目录与入口，省略具体实现文件和测试文件。
 
 ```text
 backend/
-├── business/                     # 业务 API、异步任务和管理接口
-│   ├── api/openapi.yaml          # HTTP API 定义
-│   ├── cmd/                      # 服务、Worker、Indexer 及管理工具入口
-│   ├── internal/                 # 业务逻辑、存储访问和服务配置
-│   └── migrations/               # 数据库迁移文件与嵌入逻辑
-├── observability/
-│   ├── monitor/                  # 插件管理、采集调度、日志与事件接收
-│   │   ├── cmd/monitor/          # Monitor 服务入口
-│   │   └── internal/             # 采集、插件管理、缓冲与消息发布
-│   ├── marshaller/               # 数据消费、校验、转换及存储写入
-│   │   ├── cmd/marshaller/       # Marshaller 服务入口
-│   │   └── internal/             # Kafka 消费、数据转换和存储客户端
-│   └── exporters/
-│       ├── elasticsearch/        # Elasticsearch 采集插件
-│       ├── kafka/                # Kafka 采集插件
-│       ├── mysql/                # MySQL 采集插件
-│       ├── node/                 # 官方 node_exporter 元数据与打包入口
-│       ├── rabbitmq/             # RabbitMQ 采集插件
-│       ├── redis/                # Redis 采集插件
-│       ├── victoriametrics/      # VictoriaMetrics 采集插件
-│       └── std_exporter/         # Go 采集插件开发模板
-├── runtimekit/                   # 后端共享运行时能力
-│   ├── cmd/container-exporter/   # 容器资源采集器入口
-│   ├── containerstats/           # 容器资源指标采集
-│   ├── exportercontract/         # 插件与进程管理器之间的配置契约
-│   └── metriccontract/           # 指标传输校验与单位契约
-└── README.md
+├── README.md
+└── business/
+    ├── cmd/                         # 进程与维护命令入口
+    │   ├── server/                  # HTTP API 与 Outbox 分发
+    │   ├── business-worker/         # 异步通知消费
+    │   ├── search-indexer/          # 消费消息并更新搜索索引
+    │   ├── search-reindex/          # 索引初始化、重建与恢复准备
+    │   ├── migrate/                 # 数据库迁移
+    │   └── admin-role/              # 初始超级管理员设置
+    ├── internal/
+    │   ├── modules/                 # 业务功能与共享业务契约
+    │   │   ├── auth/                # 认证、密码和令牌
+    │   │   ├── user/                # 用户、资料、关注和角色
+    │   │   ├── post/                # 帖子、命令与可见性
+    │   │   ├── comment/             # 评论
+    │   │   ├── like/                # 点赞关系
+    │   │   ├── bookmark/            # 收藏关系
+    │   │   ├── notification/        # 通知查询与事件投影
+    │   │   ├── search/              # 搜索、索引投影与重建
+    │   │   ├── bus/                 # 事件、准入和处理结果契约
+    │   │   └── businessstate/       # 纪元、命令与持久化一致性状态
+    │   ├── transport/http/          # HTTP 路由组装
+    │   │   ├── handlers/            # 按业务功能划分的 Handler
+    │   │   │   └── admin/           # 账号角色查询与变更
+    │   │   ├── middleware/          # 认证、授权与请求保护
+    │   │   ├── request/             # 请求体解析
+    │   │   ├── response/            # 响应与错误编码
+    │   │   └── params/              # 路径参数解析
+    │   ├── async/
+    │   │   ├── outbox/              # 事务事件写入与可靠分发
+    │   │   └── worker/              # 消费运行、确认与重试
+    │   ├── platform/                # 外部连接、健康检查与技术适配
+    │   │   ├── config/              # 配置读取与校验
+    │   │   ├── redisclient/         # Redis 连接、操作与故障恢复
+    │   │   ├── rabbitmq/            # RabbitMQ 探测、消息发布与拓扑
+    │   │   ├── postcache/           # Redis 帖子正文缓存
+    │   │   ├── ratelimit/           # 请求限流
+    │   │   └── resourcebudget/      # 进程资源预算
+    │   ├── shared/
+    │   │   ├── apperror/            # 应用错误类型
+    │   │   └── correlation/         # 请求与异步处理关联信息
+    │   ├── logging/                 # slog 日志与上下文
+    │   ├── testkit/integrationtest/ # 集成测试支持
+    │   └── architecture_test.go     # 目录与导入约束检查
+    ├── api/openapi.yaml             # HTTP 接口契约
+    ├── migrations/                  # SQL 迁移与迁移文件加载
+    ├── testdata/                    # 测试辅助程序
+    ├── go.mod
+    ├── go.sum
+    └── Makefile                     # 模块检查、测试与构建
 ```
 
-## 模块职责
+## 分层与依赖
 
-各一级子目录的说明见 [business](business/README.md)、[observability](observability/README.md) 和 [runtimekit](runtimekit/README.md)。
+`cmd` 构造依赖并管理进程生命周期。`transport/http` 处理路由、请求与响应，通过接口调用业务。`modules` 按功能组织业务，在各模块内部用 `model`、`validation`、`service` 和 `repository` 等文件区分职责。
 
-| 模块 | 职责 |
+业务模块不依赖 Gin、HTTP 适配或 Worker 运行实现。通知与搜索 Processor 负责具体投影，`async/worker` 负责消息确认、重试和死信。帖子模块定义缓存接口，`platform/postcache` 实现 Redis 适配，由入口注入。
+
+`platform` 根包保留 MySQL、Elasticsearch、数据库版本检查和健康检查。Redis 与 RabbitMQ 分别由 `platform/redisclient` 和 `platform/rabbitmq` 提供；调用方直接导入对应子包。帖子缓存直接依赖 Redis 子包，避免通过根包引入其他适配器。
+
+`platform/config` 保持一个包。`config.go` 提供 API 配置加载入口，其余文件按 MySQL、Redis、搜索、认证、请求保护、Outbox、运行环境和通用解析划分职责。Worker 和 Indexer 继续使用各自的配置入口。配置变量、默认值和校验规则保持不变。
+
+数据库写入和对应 Outbox 记录使用同一事务。业务模块可以在事务内调用 `async/outbox`，不为目录分层拆开原子写入。存储接口与实现仍可保留在同一业务包中。
+
+目录与导入约束由 [架构测试](business/internal/architecture_test.go) 检查。角色管理的 HTTP 入口位于 [handlers/admin](business/internal/transport/http/handlers/admin/)，角色变更和审计事务位于 [用户角色存储实现](business/internal/modules/user/repository_management.go)。
+
+## 数据与异步流程
+
+| 依赖 | 用途 |
 | --- | --- |
-| [business](business/) | 用户、帖子、评论、点赞、收藏、搜索、通知，以及可观测数据查询和管理接口 |
-| [monitor](observability/monitor/) | 管理插件进程，调度指标采集，接收日志，记录事件，并将数据发布到 Kafka |
-| [marshaller](observability/marshaller/) | 消费 Kafka 中的指标、日志和事件，完成校验与转换；指标写入 VictoriaMetrics，日志和事件写入 Elasticsearch |
-| [exporters](observability/exporters/) | 采集被监控组件的指标，由 Monitor 作为独立二进制插件启动 |
-| [runtimekit](runtimekit/) | 提供配置校验、日志、健康探针、进程指标、信号处理和退出流程等共享能力 |
+| MySQL | 业务数据、事务 Outbox、命令和处理状态 |
+| Redis | 帖子正文缓存与共享限流 |
+| RabbitMQ | 传递通知和搜索索引事件 |
+| Elasticsearch | 帖子搜索索引与查询 |
 
-业务异步任务通过 RabbitMQ 交给 Worker 和搜索 Indexer 处理。可观测数据通过 Monitor、Kafka 和 Marshaller 进入存储。RabbitMQ 与 Kafka 分别承担这两条数据链路中的消息传递职责。
+业务事务提交后，API 进程中的 Outbox 分发器将事件发布到 RabbitMQ。业务 Worker 生成通知，搜索 Indexer 更新 Elasticsearch。异步处理不改变业务事实与 Outbox 记录共同提交的要求。
 
-`business/cmd/server` 支持通过 `BACKEND_SERVICE_ROLE` 选择 API 职责：`combined` 为默认值，同时启用业务和平台职责；`business` 启用业务职责；`platform` 启用平台职责。部署方式见[部署说明](../deploy/README.md)。
+## 配置与运行
 
-### 主要程序入口
+宿主机源码运行前需自行准备外部依赖及应用账号。单机容器部署通过 [Docker Compose](../deploy/README.md) 创建依赖和业务进程。仓库不提供压测工具。配置示例统一维护在根 [.env.example](../.env.example)，本地实际配置存入根 `.env`，敏感值不得提交。
 
-| 入口 | 用途 |
+后端只读取进程环境变量，不会自动加载 `.env`。每个后端终端都需加载配置。从仓库根目录执行以下命令；配置值包含 shell 特殊字符时，需先按 shell 语法正确引用。
+
+```sh
+set -a
+. ./.env
+set +a
+cd backend/business
+```
+
+后续迁移和运行命令均在已加载配置的 `backend/business/` 目录执行。命令中的尖括号表示占位内容，执行前需替换为实际值，并移除尖括号。完整准备步骤见 [根目录开发说明](../README.md#开发准备)。
+
+`BACKEND_SERVICE_ROLE` 默认且仅支持 `business`。旧值 `combined` 和 `platform` 会被拒绝。`GOPULSE_RUNTIME_MODE=host` 要求 API 和依赖使用回环地址；容器模式的地址约束及其他校验见 [配置实现](business/internal/platform/config/) 和根 [.env.example](../.env.example)。
+
+### 数据库迁移
+
+升级已有数据库前，先备份需要保留的数据。迁移 `000021_remove_observability` 会删除 `alert_rule_states`、`alert_incidents` 和 `alert_rules` 三张表；降级只能恢复表结构，不能恢复已删除的数据。
+
+```sh
+go run ./cmd/migrate validate
+go run ./cmd/migrate status
+go run ./cmd/migrate up
+```
+
+`validate` 校验迁移文件，`status` 查看数据库状态，`up` 执行待应用迁移。`down` 仅用于本地开发，不能代替备份与恢复流程。
+
+迁移 `000022_clarify_async_table_names` 将 `business_environment`、`business_event_requirements` 和 `business_application_results` 分别改名为 `business_runtime_state`、`event_consumer_obligations` 和 `event_consumer_results`，保留数据、索引和约束。升级前停止访问这些表的 API、Worker、Indexer 及维护命令。迁移完成后再启动新程序，旧程序不能与改名后的数据库混用。
+
+本地验证迁移 22 的回滚时，先停止新程序。当前数据库版本为 22 时，执行一次 `down`；版本高于 22 时，先逐步回退后续迁移。完成后再启动匹配旧表名的程序。
+
+迁移 `000023_remove_event_failure_summaries` 删除仅保存重试与死信累计摘要的 `business_event_failures`。需要保留历史摘要时，必须在迁移前备份。升级时先停止旧 Worker，执行迁移后启动新程序。旧 Worker 仍尝试写入该表，不能继续使用。反向迁移仅恢复空表，不恢复历史数据。隔离消息、消费义务、消费结果、容量占用和管理审计继续保留。
+
+### 常驻进程
+
+完成迁移后，在分别加载配置的终端中启动以下三个进程。首次使用搜索前还需按下文初始化搜索索引。使用 Ctrl+C 停止进程。
+
+| 命令 | 职责 | 默认监听地址 |
+| --- | --- | --- |
+| `go run ./cmd/server` | HTTP API 与 Outbox 分发 | `127.0.0.1:8080` |
+| `go run ./cmd/business-worker` | 消费 RabbitMQ 消息并处理通知 | 健康检查 `127.0.0.1:19102` |
+| `go run ./cmd/search-indexer` | 消费 RabbitMQ 消息并更新 Elasticsearch 索引 | 健康检查 `127.0.0.1:19103` |
+
+API 使用 `HTTP_HOST` 和 `HTTP_PORT` 配置监听地址。Worker 与 Indexer 分别使用 `BUSINESS_WORKER_HEALTH_ADDRESS` 和 `SEARCH_INDEXER_HEALTH_ADDRESS`。健康检查地址不会随运行模式自动切换；容器部署需按探测方式配置。
+
+### 搜索索引维护
+
+MySQL 和 Elasticsearch 可用后，首次使用搜索前执行：
+
+```sh
+go run ./cmd/search-reindex --if-missing
+```
+
+该命令从 MySQL 构建搜索索引；搜索别名已存在时跳过重建。需要主动重建时，执行 `go run ./cmd/search-reindex`。重建命令执行完成后退出，`search-indexer` 则持续消费消息并同步后续变更。
+
+数据库备份恢复后的数据 epoch 切换使用 `--restore-operation`、`--expected-old-epoch` 和 `--new-epoch`。三个参数必须同时提供，旧、新 epoch 必须不同，且不能与 `--if-missing` 合用。该模式负责索引重建和业务 epoch 状态切换，不执行数据库备份恢复。参数校验与执行步骤见 [search-reindex 入口](business/cmd/search-reindex/main.go)。
+
+## 管理员角色
+
+### 初始超级管理员
+
+先通过前端注册账号。系统维护者在已加载配置的 `backend/business/` 目录执行以下命令，参数使用该账号的用户 ID：
+
+```sh
+go run ./cmd/admin-role bootstrap --user-id <已注册用户的ID>
+```
+
+也可以按已有账号的用户名设置：
+
+```sh
+go run ./cmd/admin-role promote --username <已注册用户名>
+```
+
+这两个命令都调用初始超级管理员设置逻辑，不创建账号。初始超级管理员已经确定后，重复指定同一账号不会替换它；指定其他账号会被拒绝。`promote` 不能用于日常新增其他超级管理员。
+
+### 网页角色管理
+
+初始超级管理员重新登录或刷新前端页面后，可从“角色管理”进入 `/admin/roles`。页面支持按完整用户名查询账号，并在确认后授予或撤销超级管理员权限。
+
+| 接口 | 用途 |
 | --- | --- |
-| `business/cmd/server` | 启动 HTTP API 服务 |
-| `business/cmd/business-worker` | 消费业务异步任务 |
-| `business/cmd/search-indexer` | 消费搜索索引更新任务 |
-| `business/cmd/search-reindex` | 重建搜索索引 |
-| `business/cmd/migrate` | 校验迁移文件、查询迁移状态及执行数据库迁移 |
-| `business/cmd/admin-role` | 管理管理员角色 |
-| `observability/monitor/cmd/monitor` | 启动 Monitor |
-| `observability/marshaller/cmd/marshaller` | 启动 Marshaller |
-| `runtimekit/cmd/container-exporter` | 启动容器资源采集器 |
+| `GET /api/v1/admin/users/by-username/{username}` | 返回账号角色和初始超级管理员标记 |
+| `PATCH /api/v1/admin/users/{userId}/role` | 将角色设置为 `user` 或 `super_admin` |
 
-## 本地开发
+接口使用登录会话 Cookie，后端在每次管理请求中读取数据库角色并检查权限。变更事务会再次检查操作者角色，并将角色变更与成功审计记录一同提交。请求 ID 写入审计记录；角色没有变化时返回 `changed=false`，不新增变更审计记录。
 
-后端 Go 模块要求 Go 1.26。完整开发环境还需要 Node.js、npm、Python、Docker、Docker Compose v2、Buildx、Git 和 Make；版本要求见[项目说明](../README.md)和[工具链配置](../tools/devtools/toolchains.json)。
+- 初始超级管理员不能降为普通用户，接口返回 `409 bootstrap_super_admin_protected`。
+- 非初始管理员可以撤销自己的权限。成功后前端返回首页，后续管理请求会因权限不足被拒绝。
+- 通过超级管理员角色校验后，如果尚未完成初始管理员设置或初始化状态不可用，接口返回 `503 management_setup_unavailable`。
+- 请求结果不确定时，页面要求重新查询当前角色，再决定是否操作。
 
-先检查并准备环境：
+前端不会提供初始管理员设置入口。页面行为见 [前端说明](../frontend/web/README.md#管理员角色)，请求和响应字段以 [OpenAPI](business/api/openapi.yaml) 为准。
 
-```sh
-make doctor
-make bootstrap
-```
+## 日志与健康检查
 
-环境变量示例统一维护在[.env.example](../.env.example)。实际本地配置保存在 `.env`，敏感值不得提交。
+`internal/logging` 使用标准库 `slog` 输出 JSON 日志。HTTP 请求通过 `X-Request-ID` 返回请求 ID。各常驻进程通过标准库接收退出信号，并按自身的退出超时关闭资源。
 
-启动业务开发环境：
+`internal/platform` 提供以下探针：
 
-```sh
-make dev
-```
+| 路径 | 含义 |
+| --- | --- |
+| `/startup` | 初始化已完成 |
+| `/live`、`/health` | 进程存活 |
+| `/ready` | 初始化完成、未进入退出阶段，且必要依赖和状态检查通过 |
 
-该命令准备开发依赖，启动后端 API、业务 Worker、搜索 Indexer 和用户前端。
+旧可观测平台、runtimekit、指标接口、采集任务和链路追踪已移除。当前入口保留结构化日志、健康检查和退出管理。
 
-需要同时开发可观测功能时，执行：
+## 验证与构建
+
+在仓库根目录执行：
 
 ```sh
-make dev-observe
+make ci-check MODULE=backend/business
+make ci-test MODULE=backend/business
+make ci-build MODULE=backend/business
 ```
 
-该命令在业务开发环境基础上增加 Monitor、Marshaller 和管理前端。
+| 命令 | 检查范围 |
+| --- | --- |
+| `ci-check` | 格式、`go vet` 和 lint |
+| `ci-test` | `go test -race -count=1 ./...`，包含目录和依赖边界检查 |
+| `ci-build` | 模块构建 |
 
-停止当前工作区的开发进程和依赖：
+这些命令使用 `.run/ci/go.work`，不会覆盖开发者的根 `go.work`。带 `integration` 标签的测试需要单独准备隔离环境。单元测试、构建或集成测试编译结果不能代替真实依赖联调。
 
-```sh
-make stop
-```
-
-## 检查、测试与构建
-
-使用 `MODULE` 指定完整模块路径。例如，检查业务模块：
-
-```sh
-make check MODULE=backend/business
-make lint MODULE=backend/business
-make test MODULE=backend/business
-make race MODULE=backend/business
-make build MODULE=backend/business
-```
-
-`check` 检查 Go 格式并运行 `go vet`；`lint` 运行 golangci-lint；`test` 运行模块测试；`race` 在测试时启用竞态检测；`build` 构建指定模块。
-
-其他模块使用相同入口，例如：
-
-```sh
-make test MODULE=backend/observability/monitor
-make build MODULE=backend/observability/marshaller
-make test MODULE=backend/runtimekit
-make test MODULE=backend/observability/exporters/mysql
-```
-
-完整验证单个模块：
-
-```sh
-make verify MODULE=backend/business
-```
-
-`verify` 执行与模块 CI 一致的检查、竞态测试和构建。PR 按整个 PR 的文件差异选择模块，并在检查通过后同步 `ci:*` 标签；手动运行按输入标签选择模块。push 按本次推送的文件变更选择模块，新分支或公共 CI 配置变更等情况会检查全部 Go 模块。修改 `runtimekit` 不会自动增加其使用方的检查，需要按影响范围手动运行补充验证。详细规则见[CI 说明](../tools/ci/CI.md)。
-
-## 采集插件
-
-六个 Go 采集插件和 `std_exporter` 模板分别维护独立模块。`node/` 使用官方 node_exporter 发布包，维护上游元数据、配置 schema、版本和许可文件，不包含 Go 模块。
-
-插件统一通过根目录入口打包：
-
-```sh
-make package-plugin SOURCE=mysql ARCH=amd64
-make package-plugin SOURCE=node ARCH=amd64
-```
-
-`SOURCE` 指定插件目录名，`ARCH` 指定目标架构。开发新 Go 采集插件时参考 [std_exporter 模板](observability/exporters/std_exporter/)；指标单位见[指标单位参考文档](observability/exporters/std_exporter/docs/metric_units.md)。
-
-## 维护约定与相关文档
-
-业务逻辑放在所属模块，后端共享能力放在 `runtimekit/`。调整本地目录时，保留既有 Go module 名称和 import 路径，并同步更新根 Makefile、模块 `replace` 指令及相关路径引用。
-
-部署配置位于 `deploy/`，工程工具位于 `tools/`，本地运行状态和缓存位于 `.run/`。正式压测使用根目录 `make pt`，执行前必须按压测操作说明准备专用环境、数据和观测资源。
-
-历史压测方案与报告已移至本地 `~/performance/`，Outbox 容量运行契约已移至 `~/Outbox容量运行契约.md`。
-
-- [贡献说明](../CONTRIBUTING.md)
-- [部署说明](../deploy/README.md)
-- [压测操作说明](../tools/perflab/flow/README.md)
+使用 `make list-go-modules` 查看模块清单。协作与提交要求见 [AGENTS.md](../AGENTS.md) 和 [CI 与提交规范](../tools/ci/CI.md)。

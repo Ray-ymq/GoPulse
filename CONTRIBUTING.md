@@ -5,31 +5,31 @@
 - 每项完整改动单独提交，标题遵循 Conventional Commits。
 - 提交正文包含非空的背景、改动和验证；PR 正文还需填写影响与风险。
 - 验证结果按实际执行情况填写，未执行的检查不得记录为通过。
-- 产品版本以根目录 `VERSION` 为准。
+- 产品版本以根目录 `VERSION` 为准，完整规则见 [版本管理](docs/版本管理.md)。
 
-项目通过源码交付。接收方安装 Go、Node.js 和 Docker 后，在仓库根目录执行 `make doctor` 检查环境、`make bootstrap` 安装开发依赖，再执行 `make dev` 启动开发环境。需要监控和管理前端时使用 `make dev-observe`；结束后执行 `make stop`。可用命令见 `make help`。
+项目通过源码交付。安装 Go、Node.js、Python、Git 和 Make 后，执行 `make help` 查看构建与验证入口。前端依赖通过 `make -C frontend/web install` 安装。宿主机源码运行前需自行准备依赖；单机容器部署使用根 `compose.yml`，步骤见 [部署说明](deploy/README.md)。仓库不提供压测工具。
 
-仓库不再提供产品发布包、独立安装管理工具及其备份恢复命令。`make build` 和 `make stack-up` 等源码构建、容器运行命令继续保留。
+## 版本分支与发布
 
-Exporter 由 Monitor 作为二进制插件启动，插件包由 `tools/devtools/` 从 `backend/observability/exporters/` 源码构建；不再提供独立 Exporter 容器服务和镜像构建入口。
+开发分支使用 `develop/x.x.x`，版本号表示本轮计划发布的正式版本。一个版本分支持续承载本轮的功能、修复、性能优化、重构、依赖、构建、测试、CI、部署、文档和维护工作，不为每个任务或提交单独切换版本分支。
+
+1. 从最新主线创建目标版本分支，或继续使用当前轮次的版本分支。
+2. 在该分支上完成本轮各项改动，提交类型遵循现有提交规范。
+3. 准备发布时，按整体兼容性影响确认目标版本，统一同步版本字段并记录验证结果。普通开发任务不自动修改 `VERSION`。
+4. 在同一分支准备和验证候选版，例如 `develop/1.0.0` 对应 `1.0.0-rc.1`、`1.0.0-rc.2`，验收通过后准备正式版。
+5. 本轮完成并合入主线后，再根据下一轮整体改动确定版本，从最新主线创建对应的 `develop/x.x.x` 分支。实际发布时创建版本标签。
+
+历史 `2.6.5` 等数字作为阶段编号保留。规范发布管理从首个候选版本 `1.0.0-rc.1` 开始，首个正式发布目标为 `1.0.0`，后续产品版本以根 `VERSION` 为准。本次转换沿用已有工作分支；后续新建开发分支遵循版本分支规则。目标分支名称已被历史分支占用时，按版本管理文档处理，不得直接覆盖。
 
 ## 目录与模块入口
 
-后端按系统分为 `backend/business/` 和 `backend/observability/`，共享运行时能力放在 `backend/runtimekit/`。前端位于 `frontend/`，开发、压测、CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
+业务后端位于 `backend/business/`，日志与健康检查使用业务模块内的 `internal/logging` 和 `internal/platform`。用户前端位于 `frontend/web/`，启动与验证步骤见[前端说明](frontend/web/README.md)。CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
 
 `MODULE` 和 `ci:<模块目录>` 标签使用迁移后的完整目录，例如：
 
 ```sh
 make test MODULE=backend/business
-make build MODULE=backend/observability/monitor
-make test MODULE=tools/devtools
-make ci-plan LABELS="ci:backend/business ci:backend/observability/monitor"
+make ci-plan LABELS="ci:backend/business"
 ```
 
-模块目录调整不改变 Go module 名称、import 路径和 Compose 服务名。旧模块目录参数和旧 CI 标签需要改为新路径。PR 按完整差异自动选择模块，并在检查通过后同步 `ci:*` 标签；所需远端标签由流程按需创建。手动运行仍通过模块标签指定检查范围。根目录的开发、构建和部署命令继续使用原有入口。
-
-历史压测方案与报告已移至本地主目录的 `~/performance/`；工具与配置放在 `tools/perflab/`。
-
-Compose 部署入口位于 `deploy/compose/`，开发和调试配置位于 `deploy/dev/`。目录说明、部署命令和旧路径迁移要求见[部署说明](deploy/README.md)。
-
-公共压测入口、准备步骤和专用环境要求见[压测操作说明](tools/perflab/flow/README.md)。
+业务 Go module 名称保持不变。runtimekit 模块及其 CI 标签已移除；基础日志、健康检查和退出管理由标准库与现有业务包实现。旧模块目录参数和旧 CI 标签需要改为新路径。PR 按完整差异自动选择模块，并在检查通过后同步 `ci:*` 标签；所需远端标签由流程按需创建。手动运行仍通过模块标签指定检查范围。根目录保留模块构建、测试和 CI 入口。

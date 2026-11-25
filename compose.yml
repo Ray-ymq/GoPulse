@@ -1,0 +1,337 @@
+name: gopulse
+
+x-restart-policy: &restart-policy "${GOPULSE_RESTART_POLICY:-no}"
+
+x-healthcheck: &healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 18
+  start_period: 30s
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-database-env: &database-env
+  GOPULSE_RUNTIME_MODE: container
+  GOPULSE_REPLICA_COUNT: "1"
+  MYSQL_HOST: mysql
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: ${MYSQL_DATABASE:?请设置 MYSQL_DATABASE}
+  MYSQL_USER: ${MYSQL_USER:?请设置 MYSQL_USER}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请设置 MYSQL_PASSWORD}
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-8}
+  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
+  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
+  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
+  BUSINESS_ASYNC_MAX_RETAINED_GROUPS: ${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}
+  BUSINESS_ASYNC_MAX_RETAINED_BYTES: ${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}
+
+x-bus-env: &bus-env
+  RABBITMQ_URL: ${COMPOSE_RABBITMQ_URL:?请设置容器内 RabbitMQ URL}
+  OUTBOX_RETRY_DELAY: ${OUTBOX_RETRY_DELAY:-30s}
+  SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
+
+x-search-env: &search-env
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
+  SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
+
+x-app: &app
+  image: gopulse/backend:${GOPULSE_IMAGE_TAG:?请使用 make container-build 或设置 GOPULSE_IMAGE_TAG}
+  restart: *restart-policy
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 60s
+  logging: *logging
+  networks: [backend]
+
+services:
+  web:
+    image: gopulse/web:${GOPULSE_IMAGE_TAG:?请设置 GOPULSE_IMAGE_TAG}
+    restart: *restart-policy
+    cpus: "0.5"
+    mem_limit: 256m
+    environment:
+      GOPULSE_DOMAIN: ${GOPULSE_DOMAIN:?请设置域名}
+      GOPULSE_HTTPS_SUFFIX: ${GOPULSE_HTTPS_SUFFIX:-}
+      NGINX_ENVSUBST_FILTER: ^GOPULSE_
+    ports:
+      - "${GOPULSE_BIND_ADDRESS:-0.0.0.0}:${GOPULSE_HTTP_PORT:-80}:80"
+      - "${GOPULSE_BIND_ADDRESS:-0.0.0.0}:${GOPULSE_HTTPS_PORT:-443}:443"
+    volumes:
+      - type: bind
+        source: ${GOPULSE_TLS_DIR:-./.run/tls}
+        target: /etc/nginx/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/health]
+    logging: *logging
+    networks: [edge, proxy]
+
+  api:
+    <<: *app
+    entrypoint: [/app/server]
+    cpus: "2"
+    mem_limit: 1g
+    environment:
+      <<: [*database-env, *bus-env, *search-env]
+      APP_ENV: production
+      BACKEND_SERVICE_ROLE: business
+      GOPULSE_INSTANCE_ID: api-1
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: "8080"
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?请设置至少 32 字节的 JWT 密钥}
+      AUTH_JWT_TTL: ${AUTH_JWT_TTL:-2h}
+      AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-gopulse_session}
+      AUTH_COOKIE_SECURE: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请设置 REDIS_PASSWORD}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-16}
+      REDIS_POOL_TIMEOUT: ${REDIS_POOL_TIMEOUT:-200ms}
+      REDIS_POST_DETAIL_TTL: ${REDIS_POST_DETAIL_TTL:-5m}
+      REDIS_OPERATION_TIMEOUT: ${REDIS_OPERATION_TIMEOUT:-200ms}
+      BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
+      BACKEND_TRUSTED_PROXY_CIDRS: ${GOPULSE_PROXY_SUBNET:-172.30.0.0/24}
+      BACKEND_RATE_LIMIT_ENABLED: ${BACKEND_RATE_LIMIT_ENABLED:-true}
+      BACKEND_RATE_LIMIT_OPERATION_TIMEOUT: ${BACKEND_RATE_LIMIT_OPERATION_TIMEOUT:-200ms}
+      BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES: ${BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES:-1024}
+      BACKEND_RESOURCE_AUTH: ${BACKEND_RESOURCE_AUTH:-16}
+      BACKEND_RESOURCE_READ: ${BACKEND_RESOURCE_READ:-64}
+      BACKEND_RESOURCE_WRITE: ${BACKEND_RESOURCE_WRITE:-32}
+      BACKEND_RESOURCE_DATABASE: ${BACKEND_RESOURCE_DATABASE:-32}
+      BACKEND_RESOURCE_REBUILD: ${BACKEND_RESOURCE_REBUILD:-8}
+      BACKEND_RESOURCE_WAITER: ${BACKEND_RESOURCE_WAITER:-256}
+      OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-1s}
+      OUTBOX_DATABASE_TIMEOUT: ${OUTBOX_DATABASE_TIMEOUT:-2s}
+      OUTBOX_MYSQL_MAX_OPEN_CONNS: ${OUTBOX_MYSQL_MAX_OPEN_CONNS:-4}
+      OUTBOX_PUBLISH_CONCURRENCY: ${OUTBOX_PUBLISH_CONCURRENCY:-8}
+      OUTBOX_CLAIM_BATCH: ${OUTBOX_CLAIM_BATCH:-50}
+      OUTBOX_LEASE_DURATION: ${OUTBOX_LEASE_DURATION:-5m}
+      OUTBOX_PUBLISH_TIMEOUT: ${OUTBOX_PUBLISH_TIMEOUT:-5s}
+      OUTBOX_CLEANUP_INTERVAL: ${OUTBOX_CLEANUP_INTERVAL:-1h}
+      OUTBOX_PUBLISHED_RETENTION: ${OUTBOX_PUBLISHED_RETENTION:-168h}
+      OUTBOX_CLEANUP_BATCH: ${OUTBOX_CLEANUP_BATCH:-500}
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      search-init:
+        condition: service_completed_successfully
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, curl, -fsS, --max-time, "4", http://127.0.0.1:8080/ready]
+    networks: [proxy, backend, search]
+
+  worker:
+    <<: *app
+    entrypoint: [/app/business-worker]
+    cpus: "1"
+    mem_limit: 512m
+    environment:
+      <<: [*database-env, *bus-env]
+      BUSINESS_WORKER_HEALTH_ADDRESS: 127.0.0.1:19102
+      BUSINESS_WORKER_PREFETCH: ${BUSINESS_WORKER_PREFETCH:-10}
+      BUSINESS_WORKER_MAX_RETRIES: ${BUSINESS_WORKER_MAX_RETRIES:-3}
+      BUSINESS_WORKER_PUBLISH_TIMEOUT: ${BUSINESS_WORKER_PUBLISH_TIMEOUT:-5s}
+      BUSINESS_WORKER_SHUTDOWN_TIMEOUT: ${BUSINESS_WORKER_SHUTDOWN_TIMEOUT:-10s}
+      BUSINESS_WORKER_RECONNECT_MIN: ${BUSINESS_WORKER_RECONNECT_MIN:-500ms}
+      BUSINESS_WORKER_RECONNECT_MAX: ${BUSINESS_WORKER_RECONNECT_MAX:-30s}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      search-init:
+        condition: service_completed_successfully
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, curl, -fsS, --max-time, "4", http://127.0.0.1:19102/ready]
+
+  indexer:
+    <<: *app
+    entrypoint: [/app/search-indexer]
+    cpus: "1"
+    mem_limit: 1g
+    environment:
+      <<: [*database-env, *bus-env, *search-env]
+      SEARCH_INDEXER_HEALTH_ADDRESS: 127.0.0.1:19103
+      SEARCH_INDEXER_PREFETCH: ${SEARCH_INDEXER_PREFETCH:-10}
+      SEARCH_INDEXER_MAX_RETRIES: ${SEARCH_INDEXER_MAX_RETRIES:-3}
+      SEARCH_INDEXER_PUBLISH_TIMEOUT: ${SEARCH_INDEXER_PUBLISH_TIMEOUT:-5s}
+      SEARCH_INDEXER_SHUTDOWN_TIMEOUT: ${SEARCH_INDEXER_SHUTDOWN_TIMEOUT:-10s}
+      SEARCH_INDEXER_RECONNECT_MIN: ${SEARCH_INDEXER_RECONNECT_MIN:-500ms}
+      SEARCH_INDEXER_RECONNECT_MAX: ${SEARCH_INDEXER_RECONNECT_MAX:-30s}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      search-init:
+        condition: service_completed_successfully
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, curl, -fsS, --max-time, "4", http://127.0.0.1:19103/ready]
+    networks: [backend, search]
+
+  migrate:
+    <<: *app
+    restart: "no"
+    entrypoint: [/app/migrate]
+    command: [up]
+    cpus: "1"
+    mem_limit: 512m
+    environment: *database-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  search-init:
+    <<: *app
+    restart: "no"
+    entrypoint: [/app/search-reindex]
+    command: [--if-missing]
+    cpus: "1"
+    mem_limit: 512m
+    environment:
+      <<: [*database-env, *search-env]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    networks: [backend, search]
+
+  mysql:
+    image: mysql:8.4.13
+    restart: *restart-policy
+    cpus: "3"
+    mem_limit: 2.5g
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?}
+      MYSQL_USER: ${MYSQL_USER:?}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置 MYSQL_ROOT_PASSWORD}
+    command:
+      - --innodb-buffer-pool-size=1536M
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      <<: *healthcheck
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}"
+          mysql --protocol=TCP -h 127.0.0.1
+          -u "$${MYSQL_USER}" "$${MYSQL_DATABASE}" -e 'SELECT 1' >/dev/null
+    logging: *logging
+    networks: [backend]
+
+  redis:
+    image: redis:7.2.17-alpine
+    restart: *restart-policy
+    cpus: "1"
+    mem_limit: 2g
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-1800mb}
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-allkeys-lru}
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        --maxmemory "$${REDIS_MAXMEMORY:-1800mb}"
+        --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-allkeys-lru}"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -qx PONG']
+    logging: *logging
+    networks: [backend]
+
+  rabbitmq:
+    image: rabbitmq:4.3.7-alpine
+    hostname: rabbitmq
+    restart: *restart-policy
+    cpus: "2.5"
+    mem_limit: 512m
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?请设置 RabbitMQ 账号}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?请设置 RabbitMQ 密码}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2 +sbwt none +sbwtdcpu none +sbwtdio none"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      <<: *healthcheck
+      interval: 60s
+      start_interval: 5s
+      retries: 3
+      test: [CMD, nc, -z, -w, "2", 127.0.0.1, "5672"]
+    logging: *logging
+    networks: [backend]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    restart: *restart-policy
+    cpus: "3"
+    mem_limit: 4.5g
+    mem_swappiness: 0
+    memswap_limit: 4.5g
+    environment:
+      bootstrap.memory_lock: "true"
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms2560m -Xmx2560m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65535
+        hard: 65535
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      <<: *healthcheck
+      timeout: 10s
+      start_period: 60s
+      test:
+        - CMD
+        - curl
+        - -fsS
+        - --max-time
+        - "8"
+        - http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s
+    logging: *logging
+    networks: [search]
+
+networks:
+  edge:
+  proxy:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${GOPULSE_PROXY_SUBNET:-172.30.0.0/24}
+  backend:
+    internal: true
+  search:
+    internal: true
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+  elasticsearch-data:

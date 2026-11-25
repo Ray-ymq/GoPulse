@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/user"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
-	"github.com/Ray-ymq/GoPulse/backend/internal/user"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 )
 
 const operationTimeout = 5 * time.Second

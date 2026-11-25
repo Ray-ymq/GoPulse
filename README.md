@@ -1,187 +1,136 @@
 # GoPulse
 
-GoPulse 包含业务系统与可观测系统，提供社交业务功能、指标采集、日志与事件处理，以及配套的开发和压测工具。
+GoPulse 是社交内容应用，提供注册登录、用户资料、关注、帖子、评论、点赞、收藏、搜索和异步通知。用户前端采用现代简洁主题，通过业务 API 访问数据。超级管理员可以在同一前端查询账号角色，并授予或撤销超级管理员权限。
 
-## 功能
+## 模块与技术
 
-| 系统 | 主要功能 |
+| 路径 | 技术与职责 |
 | --- | --- |
-| 业务系统 | 用户、帖子、评论、点赞、收藏、搜索和异步通知 |
-| 可观测系统 | 插件管理、指标采集、日志与事件接收、数据处理及存储 |
-| 工程工具 | 本地开发环境、构建、检查、插件打包和压测 |
+| `backend/business/` | Go、Gin；提供 API、Outbox 分发、通知任务、搜索索引及数据库迁移 |
+| `frontend/web/` | Vue 3、Vue Router、TypeScript、Vite；提供用户界面和超级管理员角色管理页面 |
+| `tools/ci/` | Python 与 Node.js；执行模块选择、提交校验及工具测试 |
 
-可观测系统由三个部分组成：
+MySQL 保存业务数据，Redis 提供缓存和共享限流，RabbitMQ 传递异步任务，Elasticsearch 提供搜索。模块清单以根 [Makefile](Makefile) 为准，产品版本以 [VERSION](VERSION) 为准。详细技术说明见 [技术栈说明](docs/GoPulse%20技术栈.md)。
 
-- **Exporters**：采集 MySQL、Redis、Kafka 等组件的指标；Node 指标使用官方 node_exporter。
-- **Monitor**：管理采集插件、调度指标采集，并接收日志和事件。
-- **Marshaller**：消费可观测数据，完成校验、转换及存储写入。
-
-## 技术栈
-
-| 分类 | 技术 |
-| --- | --- |
-| 后端 | Go、Gin |
-| 前端 | Vue 3、TypeScript、Vite |
-| 数据与缓存 | MySQL、Redis |
-| 消息 | RabbitMQ、Kafka |
-| 搜索与日志 | Elasticsearch |
-| 指标存储 | VictoriaMetrics |
-| 链路追踪 | OpenTelemetry |
-| 部署与 CI | Docker、Docker Compose、GitHub Actions |
-
-详细版本见[技术栈说明](docs/GoPulse%20技术栈.md)。
-
-## 目录结构
+## 目录导航
 
 ```text
 GoPulse/
-├── backend/                  # 后端系统与共享模块
-│   ├── business/             # 业务 API、异步任务、搜索索引及数据库迁移
-│   ├── observability/        # 可观测系统
-│   │   ├── monitor/          # 采集调度、日志与事件接收、插件管理
-│   │   ├── marshaller/       # 数据消费、处理与存储写入
-│   │   └── exporters/        # 采集插件、原生插件元数据及开发模板
-│   └── runtimekit/          # 后端共享运行时能力与指标契约
-├── frontend/
-│   ├── user/                # 用户前端
-│   ├── admin/               # 管理前端
-│   └── shared/              # 前端共用组件与工具
-├── tools/
-│   ├── devtools/            # 开发环境、工具链、构建及插件打包
-│   ├── perflab/             # 压测工具、配置与分析
-│   ├── ci/                  # CI 模块选择和提交规范校验
-│   └── make/                # 共享 Makefile 规则
-├── deploy/                  # Docker、Compose 及观测部署配置
-├── docs/                    # 技术栈说明
-│   └── GoPulse 技术栈.md
-├── .github/                 # GitHub Actions 工作流和 PR 模板
-├── .githooks/               # 本地 Git 提交检查
-├── .run/                    # 本地运行数据与缓存，不作为源码提交
-├── AGENTS.md                # 仓库协作规则
-├── CONTRIBUTING.md          # 贡献指南
-├── README.md                # 项目介绍与开发入口
-├── Makefile                 # 开发、检查、构建和运行命令入口
-├── VERSION                  # 产品版本号
-└── LICENSE                  # MIT 许可证
+├── backend/          # 后端说明与业务 Go 模块
+├── frontend/web/     # Vue 用户前端与角色管理页面
+├── tools/ci/         # CI 模块选择、验证与提交规范工具
+├── tools/make/       # 共享 Makefile 片段
+├── docs/             # 技术与设计资料
+├── .github/          # GitHub Actions 与 PR 模板
+├── .githooks/        # Git 提交钩子
+├── .env.example      # 配置示例
+├── Makefile          # 模块清单与统一验证入口
+└── VERSION           # 产品版本
 ```
 
-Go 模块分别维护自己的 `go.mod`。模块清单以根 `Makefile` 中的 `GO_MODULES` 和 `NPM_MODULES` 为准。
+后端目录、进程入口和维护操作见 [后端说明](backend/README.md)。前端开发与交互说明见 [前端说明](frontend/web/README.md)。
 
-`README.md` 留在所属目录，其他说明文档放在所属目录的 `docs/`。跨模块文档放在根目录 `docs/`，贡献指南 `CONTRIBUTING.md` 放在项目根目录。仅在有补充文档时创建 `docs/`，已有 `docs/` 内不再重复嵌套。`AGENTS.md` 和 `.github/pull_request_template.md` 保留工具约定的位置。
+## 开发准备
 
-## 本地开发
+源码开发需要 Go 1.26、Node.js 24.20.0 或更新版本、Python 3.12 或更新版本，以及 Git 和 Make。单机容器构建与部署使用 Docker Compose，步骤见 [容器部署说明](deploy/README.md)。仓库不提供压测工具。
 
-### 环境要求
+1. 自行准备 MySQL、Redis、RabbitMQ 和 Elasticsearch，并创建应用使用的数据库与账号。
+2. 仅在 `.env` 不存在时复制配置示例，避免覆盖已有配置：
 
-- Go 1.26
-- Node.js 24，最低 24.20.0
-- npm 11，最低 11.19.0
-- Python 3.12 或更新版本
-- Docker、Docker Compose v2 和 Buildx
-- Git、Make
+   ```sh
+   test -f .env || cp .env.example .env
+   ```
 
-工具链要求见 [toolchains.json](tools/devtools/toolchains.json)。
+3. 按实际依赖修改 `.env`。示例凭据仅用于本地开发，不得用于生产环境。JWT 密钥至少需要 32 字节；非本地开发和测试环境必须设置 `AUTH_COOKIE_SECURE=true`。
+4. 安装前端依赖：
 
-### 准备环境
+   ```sh
+   make -C frontend/web install
+   ```
+
+`.env` 已被 Git 忽略。后端只读取进程环境变量，不会自动加载 `.env`。在每个运行后端命令的终端中，从仓库根目录加载配置；包含空格、`$` 或其他 shell 特殊字符的值需按 shell 语法正确引用：
+
+```sh
+set -a
+. ./.env
+set +a
+cd backend/business
+```
+
+示例使用 `GOPULSE_RUNTIME_MODE=host`，API 和依赖地址必须指向本机回环地址。自行准备容器部署时可使用 `container` 模式：API 监听地址须为未指定地址，依赖主机须为服务 DNS 名称。Worker 和 Indexer 的健康检查地址需要分别配置。
+
+## 数据库与进程
+
+以下命令在已加载环境变量的 `backend/business/` 目录执行。
+
+升级已有数据库前，先备份需要保留的数据。迁移 `000021_remove_observability` 会删除三张告警表；降级只能恢复表结构，不能恢复已删除的数据。迁移 `down` 仅用于本地开发，产品数据恢复需要备份与恢复流程。
+
+```sh
+go run ./cmd/migrate validate
+go run ./cmd/migrate status
+go run ./cmd/migrate up
+```
+
+首次使用搜索前，在 MySQL 和 Elasticsearch 可用时初始化搜索索引；已有搜索别名时此命令跳过重建：
+
+```sh
+go run ./cmd/search-reindex --if-missing
+```
+
+分别在三个终端加载配置并启动进程，使用 Ctrl+C 停止：
+
+| 命令 | 职责 | 默认监听地址 |
+| --- | --- | --- |
+| `go run ./cmd/server` | 业务 API 与 Outbox 分发 | `127.0.0.1:8080` |
+| `go run ./cmd/business-worker` | 消费 RabbitMQ 消息并处理通知 | 健康检查 `127.0.0.1:19102` |
+| `go run ./cmd/search-indexer` | 消费 RabbitMQ 消息并更新 Elasticsearch 索引 | 健康检查 `127.0.0.1:19103` |
+
+进程提供 `/startup`、`/live`、`/health` 和 `/ready` 探针。`/ready` 检查必要依赖。日志通过标准库 `slog` 输出 JSON。
+
+完整业务入口见 [后端说明](backend/README.md)，HTTP 契约见 [OpenAPI](backend/business/api/openapi.yaml)。
+
+## 启动前端
+
+另开终端，在仓库根目录执行：
+
+```sh
+make -C frontend/web dev
+```
+
+默认访问 `http://127.0.0.1:5173`。Vite 从根 `.env` 读取 `FRONTEND_PORT`、`HTTP_PORT` 和 `GOPULSE_API_TARGET`。`GOPULSE_API_TARGET` 留空时，`/api` 代理到 `http://127.0.0.1:${HTTP_PORT:-8080}`。
+
+登录与注册使用后端下发的 HttpOnly 会话 Cookie。部署静态产物时，需自行配置 `/api` 同源代理和前端路由回退。页面、草稿保存和浏览器验证说明见 [前端说明](frontend/web/README.md)。
+
+## 管理员角色
+
+先通过前端注册账号。系统维护者随后在已加载配置的 `backend/business/` 目录中，按该账号的用户 ID 设置初始超级管理员。执行前，将尖括号占位内容替换为实际 ID，并移除尖括号：
+
+```sh
+go run ./cmd/admin-role bootstrap --user-id <已注册用户的ID>
+```
+
+该账号重新登录或刷新页面后，导航会显示“角色管理”，页面地址为 `/admin/roles`。管理员可按完整用户名查找账号，确认后授予或撤销超级管理员权限。普通用户不能访问管理接口，初始超级管理员的权限不能撤销。非初始管理员撤销自己的权限后，页面返回首页。
+
+初始管理员设置与日常角色管理的区别、接口和审计规则见 [后端角色管理说明](backend/README.md#管理员角色)。
+
+## 验证与构建
 
 在仓库根目录执行：
 
 ```sh
-make doctor
-make bootstrap
+make ci-tools
+make ci-check MODULE=backend/business
+make ci-test MODULE=backend/business
+make ci-build MODULE=backend/business
+make check MODULE=frontend/web
+make test MODULE=frontend/web
+make build MODULE=frontend/web
 ```
 
-`.env.example` 提供环境配置示例；`.env` 用于保存本地实际配置。示例中的凭据仅用于开发环境。
+`ci-check` 检查 Go 格式、静态分析和 lint；`ci-test` 运行带竞态检测的 Go 测试。前端构建产物位于 `frontend/web/dist/`。这些检查不能代替真实依赖联调。
 
-### 启动业务系统
+使用 `make help` 查看入口。协作与提交要求见 [AGENTS.md](AGENTS.md) 和 [贡献说明](CONTRIBUTING.md)，CI 行为见 [CI 与提交规范](tools/ci/CI.md)。
 
-```sh
-make dev
-```
+## 当前范围
 
-该命令启动业务开发环境，包括后端 API、业务 Worker、搜索 Indexer 和用户前端。
-
-### 启动可观测开发环境
-
-```sh
-make dev-observe
-```
-
-该命令在业务开发环境基础上增加 Monitor、Marshaller 和管理前端。
-
-### 停止开发环境
-
-```sh
-make stop
-```
-
-## 常用命令
-
-| 命令 | 用途 |
-| --- | --- |
-| `make help` | 查看可用命令 |
-| `make doctor` | 检查本地环境 |
-| `make bootstrap` | 准备开发依赖 |
-| `make check-all` | 执行所有模块的格式与静态检查 |
-| `make lint-all` | 执行所有模块的 lint |
-| `make build-programs` | 构建程序与前端 |
-| `make check-compose` | 检查 Compose 配置 |
-| `make ci-tools` | 测试 CI 选择与提交校验工具 |
-
-检查或构建单个模块时，使用完整模块路径：
-
-```sh
-make test MODULE=backend/business
-make race MODULE=backend/observability/monitor
-make lint MODULE=frontend/user
-make build MODULE=frontend/admin
-make verify MODULE=tools/devtools
-```
-
-## 插件开发
-
-插件通过 Monitor 作为独立进程启动。现有插件及开发模板位于 `backend/observability/exporters/`。
-
-在仓库根目录打包插件：
-
-```sh
-make package-plugin SOURCE=mysql ARCH=amd64
-```
-
-## 压测
-
-压测工具位于 `tools/perflab/`。历史压测方案与报告已移至本地主目录的 `~/performance/`。
-
-执行正式压测前，先按[压测操作说明](tools/perflab/flow/README.md)准备专用环境、数据和观测资源，再运行：
-
-```sh
-make pt
-```
-
-## 配置文件
-
-| 文件 | 用途 |
-| --- | --- |
-| `.env` | 本地实际环境配置，不提交 Git |
-| `.env.example` | 环境配置示例 |
-| `.gitignore` | Git 忽略规则 |
-| `.gitattributes` | 文件换行等 Git 属性 |
-| `.dockerignore` | Docker 构建上下文排除规则 |
-| `.editorconfig` | 编辑器格式约定 |
-| `.gitmessage` | Git 提交说明模板 |
-| `.conventional-commits.json` | 提交类型与历史校验规则 |
-| `.golangci.yml` | Go lint 配置 |
-
-## 文档与贡献
-
-- [项目分层说明](docs/项目分层说明.md)
-- [贡献指南](CONTRIBUTING.md)
-- [仓库协作规则](AGENTS.md)
-- [CI 与提交规范](tools/ci/CI.md)
-- [HTTP API 定义](backend/business/api/openapi.yaml)
-
-提交信息使用 Conventional Commits，正文填写非空的“背景、改动、验证”。验证结果必须与实际执行情况一致。
-
-## 许可证
-
-本项目采用 [MIT License](LICENSE)。
+项目已移除独立管理前端、平台 API、插件管理、Monitor、Marshaller、Kafka、VictoriaMetrics、日志与事件查询、告警、指标埋点与采集接口，以及 OpenTelemetry 追踪。业务进程保留本地结构化日志、健康检查和退出管理。当前角色管理页面属于 `frontend/web/`，不依赖已移除的管理平台。历史迁移编号保持不变。

@@ -16,7 +16,7 @@ class ModuleFixture(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.repo = Path(self.temporary.name)
-        self.go_modules = ["shared", "api", "worker", "backend/observability/exporters/probe", "tools/devtools"]
+        self.go_modules = ["shared", "api", "worker", "backend/observability/exporters/probe", "tools/example"]
         self.npm_modules = ["frontend/user", "frontend/admin"]
         self.write("Makefile", (
             "list-go-modules:\n\t@echo " + " ".join(self.go_modules)
@@ -72,7 +72,7 @@ class ModuleTests(ModuleFixture):
         self.assertEqual(plan["labels"], ["ci:api", "ci:worker"])
 
     def test_development_helper_does_not_select_frontends(self) -> None:
-        self.assertEqual(self.selected(["ci:tools/devtools"]), {"tools/devtools"})
+        self.assertEqual(self.selected(["ci:tools/example"]), {"tools/example"})
 
     def test_frontend_manifests_and_makefiles_are_not_required_by_ci(self) -> None:
         for name in self.npm_modules:
@@ -137,7 +137,7 @@ class ModuleTests(ModuleFixture):
         self.assertEqual(select_changed(self.repo, paths)["modules"], ["shared", "api"])
 
     def test_local_unknown_and_frontend_paths_never_select_everything(self) -> None:
-        paths = ["api-extra/main.go", "frontend/user/src/main.ts", "frontend/shared/tokens.css", "new-module/main.go", "deploy/compose/compose.yaml", "docs/design.md", "api/README.md"]
+        paths = ["api-extra/main.go", "frontend/user/src/main.ts", "frontend/shared/tokens.css", "new-module/main.go", "unregistered/config.yaml", "docs/design.md", "api/README.md"]
         plan = select_changed(self.repo, paths)
         self.assertFalse(plan["has_modules"])
 
@@ -287,7 +287,7 @@ class GitChangesTests(GitFixture):
         self.assertFalse(plan["has_modules"])
 
     def test_shared_ci_changes_check_every_module(self) -> None:
-        for path in ("Makefile", ".golangci.yml", ".conventional-commits.json", "tools/devtools/toolchains.json", "tools/make/go-lint.mk", "tools/ci/modules.py", ".github/workflows/ci.yml"):
+        for path in ("Makefile", ".golangci.yml", ".conventional-commits.json", "tools/ci/toolchains.json", "tools/make/go-lint.mk", "tools/ci/modules.py", ".github/workflows/ci.yml"):
             with self.subTest(path=path):
                 target = self.repo / path
                 self.write(path, (target.read_text() if target.exists() else "") + "\n# updated\n")
@@ -430,8 +430,8 @@ class CLITests(GitFixture):
 
 class EventTests(unittest.TestCase):
     def test_manual_labels_accept_commas_spaces_and_newlines(self) -> None:
-        value = "ci:api, ci:worker\nci:tools/devtools"
-        self.assertEqual(split_labels(value), ["ci:api", "ci:worker", "ci:tools/devtools"])
+        value = "ci:api, ci:worker\nci:tools/example"
+        self.assertEqual(split_labels(value), ["ci:api", "ci:worker", "ci:tools/example"])
         self.assertEqual(event_labels("workflow_dispatch", {"inputs": {"labels": value}}), split_labels(value))
 
     def test_pr_label_names_are_read_as_data(self) -> None:

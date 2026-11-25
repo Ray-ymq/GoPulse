@@ -1,187 +1,168 @@
-# 产品部署
+# Docker Compose 单机部署
 
-`deploy/` 保存两种产品部署方式及共享镜像定义。Compose 操作见本文，Kubernetes 准备、双部署命令、切换和数据边界见 [双部署说明](docs/DUAL_DEPLOYMENT.md)。所有命令均在仓库根目录执行。
+根 `compose.yml` 定义 10 个服务容器：Nginx、API、通知 Worker、搜索 Indexer、MySQL、Redis、RabbitMQ、Elasticsearch，以及迁移和搜索初始化两个一次性任务。正常启动完成后，8 个容器运行，两个任务以退出码 0 结束。
 
-## 目录结构
+项目构建两个镜像：`gopulse/backend` 和 `gopulse/web`。后端镜像包含三个常驻进程及 `migrate`、`search-reindex`、`admin-role` 维护命令，各容器选择自己的入口。MySQL、Redis、RabbitMQ、Elasticsearch 使用 Compose 中固定版本的上游镜像。不要将旧数据库或 RabbitMQ 的数据卷直接挂载到不同主版本；已有数据需要按上游升级流程迁移。
 
-```text
-deploy/
-├── compose/        # 业务、可观测、整体系统的部署入口
-├── docker/         # Dockerfile 和镜像构建资源
-├── kubernetes/     # Kubernetes 产品、集群和追踪资源
-├── dev/            # 本地开发、调试和追踪覆盖配置
-├── docs/           # 部署说明与验收记录
-├── otel/           # 追踪采集器配置
-├── selfmonitor/    # 自监控部署资源
-└── README.md
+## 准备环境
+
+需要 Docker Engine 25 或更新版本、Docker Compose 2.20.2 或更新版本，以及 Make。构建使用 BuildKit 缓存，宿主机无需安装 Go 或 Node.js。首次构建和启动需要联网拉取镜像、Go 模块、npm 和 Alpine 软件包。
+
+Elasticsearch 固定 2.5 GiB JVM 堆，容器内存上限为 4.5 GiB。主机还需为其他服务和系统预留内存。Linux 主机的 `vm.max_map_count` 至少设置为 `1048576`。先检查当前值，低于要求时由主机管理员调整，并配置重启后保留。参考 [Elastic 容器要求](https://www.elastic.co/docs/deploy-manage/deploy/self-managed/install-elasticsearch-docker-prod)。
+
+```sh
+cat /proc/sys/vm/max_map_count
 ```
 
-环境变量示例统一维护在根目录的 [`.env.example`](../.env.example)。
+本方案由 Nginx 直接终止 TLS，仅发布 HTTP 与 HTTPS 端口。API、数据库、缓存、消息队列、搜索和后端健康检查均不发布主机端口。域名的 DNS 记录需指向部署主机，主机防火墙需放行对应端口。
 
-本次分支整合的验证结果、升级与回滚边界，以及尚未完成的验收项目，见 [Compose 整合与验收记录](docs/COMPOSE_INTEGRATION.md)。
+当前 Elasticsearch 客户端没有认证配置，Compose 因此关闭 Elasticsearch 认证，并将其限制在仅连接 API、Indexer、搜索初始化任务的内部网络。此方案适用于信任同一 Docker 主机及相连容器的场景；如果要求服务之间也必须认证或加密，需先补充客户端支持。Compose 不提供多机高可用。
 
-## 选择部署模式
+## 配置与证书
 
-| 模式 | Compose 文件 | 当前用途 |
-|---|---|---|
-| 业务系统 | [compose.business.yaml](compose/compose.business.yaml) | 运行现有 PT6 业务环境，包含业务管理入口 |
-| 可观测系统 | [compose.observability.yaml](compose/compose.observability.yaml) | 独立运行登录、管理、采集、存储和查询服务 |
-| 整体系统 | [compose.yaml](compose/compose.yaml) | 同时运行业务和可观测服务 |
+从仓库根目录执行，保留已有 `.env`：
 
-可观测系统通过管理前端直接提供登录和管理入口，不启动用户前端、业务 API、异步任务、业务搜索、Redis 或 RabbitMQ。三个部署模式分别使用各自项目的数据卷。
-
-### 当前启动的服务
-
-下表按现有文件列出默认启动内容。数字表示常驻容器数量，`—` 表示不启动。
-
-| 服务 | 镜像 | 业务系统 | 可观测系统 | 整体系统 |
-|---|---|:---:|:---:|:---:|
-| 业务 API | `gopulse/backend` | 2 | — | 2 |
-| Platform API | `gopulse/backend` | 1 | 1 | 1 |
-| 业务异步任务 | `gopulse/business-worker` | 2 | — | 2 |
-| 搜索索引更新 | `gopulse/search-indexer` | 2 | — | 2 |
-| 用户前端 | `gopulse/frontend` | 1 | — | 1 |
-| 管理前端 | `gopulse/admin-frontend` | 1 | 1 | 1 |
-| Monitor | `gopulse/monitor` | — | 1 | 1 |
-| Marshaller | `gopulse/marshaller` | — | 2 | 2 |
-| MySQL | `mysql` | 1 | 1 | 1 |
-| Redis | `redis` | 1 | — | 1 |
-| RabbitMQ | `rabbitmq` | 1 | — | 1 |
-| 业务 Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch` | 1 | — | 1 |
-| 可观测 Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch` | — | 1 | 1 |
-| Kafka | `apache/kafka` | — | 1 | 1 |
-| VictoriaMetrics | `victoriametrics/victoria-metrics` | — | 1 | 1 |
-
-Monitor 默认不自动安装采集插件。启动后可通过管理页面安装插件；需要启动时自动安装时，先准备插件包，再设置容器内的 `MONITOR_BOOTSTRAP_PACKAGE` 路径。整体系统将主机的 `.run/packages/` 挂载到 `/opt/gopulse/packages/`；独立可观测系统通过管理页面安装插件。
-
-镜像版本和覆盖变量以对应 Compose 文件为准。整体系统中的两个 Elasticsearch 实例使用独立数据卷。Exporter 由 Monitor 作为二进制插件启动，不单独运行容器。
-
-### 初始化和按需任务
-
-| 任务 | 业务系统 | 可观测系统 | 整体系统 | 执行方式 |
-|---|:---:|:---:|:---:|---|
-| 数据库迁移 `migrate` | 执行 | 执行 | 执行 | 随依赖链启动，完成后退出 |
-| 搜索初始化 `search-init` | 执行 | — | 执行 | 随依赖链启动，完成后退出 |
-| Topic 初始化 `kafka-init` | — | 执行 | 执行 | 随依赖链启动，完成后退出 |
-| 管理员初始化 `admin-role` | 可用 | 可用 | 可用 | 按需执行，使用 `operations` profile |
-| 压测容器 `k6` | 可用 | — | — | 按需执行，使用 `load` profile |
-
-正式压测使用根目录的 `make pt`，准备步骤和执行条件见[压测操作说明](../tools/perflab/flow/README.md)。
-
-## 准备配置和镜像
-
-1. 安装 Docker 和 Docker Compose。使用本地构建工具时，还需满足根目录开发工具的要求，见[贡献说明](../CONTRIBUTING.md)。
-2. 根据根目录 `.env.example` 准备私有环境文件 `.env`，填写实际凭据、版本和端口。不要覆盖已有配置，不要提交实际凭据。
-3. 使用自研镜像前，执行 `make build-images` 构建本地镜像，或预先准备与配置匹配的镜像。构建入口以根目录 `VERSION` 为产品版本来源；部署时应核对 `.env` 中的版本和镜像配置。
-4. 运行 `make check-compose`，检查仓库示例配置及覆盖组合。该命令不启动容器；实际部署前仍需校验自己的 `.env`。
-
-## 启动、查看和停止
-
-先选择一份 Compose 文件，在当前终端设置路径。下面三行只执行对应模式的一行：
-
-```bash
-gopulse_compose_file=deploy/compose/compose.business.yaml
-gopulse_compose_file=deploy/compose/compose.observability.yaml
-gopulse_compose_file=deploy/compose/compose.yaml
+```sh
+test -f .env || cp .env.example .env
+chmod 600 .env
 ```
 
-新部署可以直接使用文件中的默认项目名。接管已有部署时，必须继续使用原有项目名，例如先执行 `export COMPOSE_PROJECT_NAME=gopulse`。项目名决定命名数据卷的归属。
+配置示例只维护在根 `.env.example`。部署前编辑 `.env`：
 
-| Compose 文件 | 默认项目名 |
-|---|---|
-| `compose.business.yaml` | `gopulse-pt6-business` |
-| `compose.observability.yaml` | `gopulse-observability` |
-| `compose.yaml` | `deploy` |
+- 设置 `GOPULSE_DOMAIN`，值仅包含域名，不含协议、端口或路径。
+- 替换 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`REDIS_PASSWORD`、`RABBITMQ_DEFAULT_PASS` 和 `AUTH_JWT_SECRET`。JWT 密钥至少需要 32 字节，不得使用示例凭据。
+- 设置 `RABBITMQ_DEFAULT_USER`，并让 `COMPOSE_RABBITMQ_URL` 的凭据与之匹配。URL 的主机必须为 `rabbitmq`；账号和密码中的特殊字符需百分号编码。可用 `openssl rand -hex 32` 生成不需要 URL 编码的随机密码。
+- 将证书链和私钥放入 `GOPULSE_TLS_DIR` 指定的目录，文件名分别为 `fullchain.pem` 和 `privkey.pem`。默认目录为 `.run/tls`，不得提交私钥。证书需覆盖 `GOPULSE_DOMAIN`，私钥需可被容器内 Nginx 主进程读取。
+- 如端口已占用，调整 `GOPULSE_HTTP_PORT` 和 `GOPULSE_HTTPS_PORT`。HTTPS 使用非 443 端口时，还需设置对应的 `GOPULSE_HTTPS_SUFFIX`，例如端口 `8443` 对应 `:8443`。
+- 如 `172.30.0.0/24` 与已有网络冲突，修改 `GOPULSE_PROXY_SUBNET`。API 自动信任此专用代理网段；该网络只连接 Nginx 和 API。
 
-按以下顺序校验和启动：
+Compose 显式将必要环境变量注入各角色，不会将整份 `.env` 放入镜像或传给容器。运行模式固定为 `container`，API 固定监听 `0.0.0.0:8080`，依赖地址固定为服务 DNS 名称。API 固定使用 `production`、Secure Cookie 和 Redis；宿主机开发配置 `APP_ENV`、`AUTH_COOKIE_SECURE`、`MYSQL_HOST`、`HTTP_PORT` 等不会改变这些容器配置。宿主机使用的 `RABBITMQ_URL` 与容器使用的 `COMPOSE_RABBITMQ_URL` 分开配置。
 
-```bash
-# 校验私有配置。
-docker compose --env-file .env -f "$gopulse_compose_file" config --quiet
+Nginx 保留原始 Host，并覆盖 `X-Forwarded-Proto` 和 `X-Forwarded-For`，以满足同源校验并避免信任客户端伪造的转发头。当前配置假定客户端直接连接 Nginx；如前置 CDN 或负载均衡器，需按可信来源重新配置真实客户端地址。Nginx 内部动态解析 `api`，API 容器重建后无需依赖旧 IP。
 
-# 启动服务和所需初始化任务。
-docker compose --env-file .env -f "$gopulse_compose_file" up -d
+## 构建与首次启动
 
-# 查看容器状态，包括已退出的初始化任务。
-docker compose --env-file .env -f "$gopulse_compose_file" ps -a
+`VERSION` 是产品版本的唯一来源。Make 默认将其用作两个项目镜像的标签。需要保留不同构建时，可在下列所有 Make 命令中一致传入 `GOPULSE_IMAGE_TAG=<自定义标签>`；它只改变镜像标签，不改变镜像内的产品版本标签。
 
-# 查看最近的日志。
-docker compose --env-file .env -f "$gopulse_compose_file" logs --tail=100
+```sh
+make container-build
+make container-config
+make container-up
 ```
 
-业务系统和整体系统通过用户前端统一提供访问入口。使用示例端口配置时，用户页面为 `http://127.0.0.1:5173/`，管理页面为 `http://127.0.0.1:5173/admin/`。实际地址由 `PUBLISHED_HOST` 和 `FRONTEND_PORT` 决定；业务系统未启动观测依赖，观测查询不可用。
+`container-build` 只构建两个项目镜像，不要求配置运行凭据或提供证书。`container-config` 只校验 Compose 配置，不会输出解析后的敏感值。启动前仍需确认凭据、证书文件和主机资源已准备好。
 
-停止时，使用与启动时相同的项目名、环境文件和 Compose 文件：
+常驻容器的默认重启策略为 `no`。主机重启后，按需运行 `make container-up` 启动服务。进程退出后也需手动恢复。部署需要 Docker 在启动后恢复服务时，在 `.env` 中设置 `GOPULSE_RESTART_POLICY=unless-stopped`。迁移和搜索初始化任务始终使用 `no`。已有部署需运行 `make container-up`，让 Compose 应用新策略。
 
-```bash
-docker compose --env-file .env -f "$gopulse_compose_file" down
+## 容量复测覆盖配置
+
+默认 `compose.yml` 保持当前运行配置。容量复测可以显式追加覆盖文件。`compose.capacity-es.yml` 将 Elasticsearch 设置为 6 vCPU、6 GiB 内存和 3 GiB heap。`compose.capacity-cache-db.yml` 将 MySQL 设置为 3.5 GiB 容器上限和 2 GiB InnoDB buffer pool，并将 Redis 设置为 256 MiB 容器上限、200 MiB `maxmemory` 和 `noeviction` 策略。
+
+先渲染并检查覆盖配置：
+
+```sh
+docker compose -f compose.yml \
+  -f compose.capacity-es.yml \
+  -f compose.capacity-cache-db.yml config --quiet
 ```
 
-`down` 默认保留命名数据卷。只有确认需要删除持久化数据时，才使用 `down --volumes`。切换部署模式不会自动迁移数据。同一工作区一次只运行一种产品部署方式和模式；切换前先停止原环境。
+确认主机内存、凭据、证书和测试数据已准备好后，再显式启动覆盖配置：
 
-### 独立可观测系统的访问与管理员初始化
-
-默认管理地址为 `http://127.0.0.1:5174/admin/`，登录地址为 `/admin/login`。实际端口由 `ADMIN_FRONTEND_PORT` 决定。页面和 API 共用此入口，平台 API、MySQL、Kafka 和存储服务不向主机开放端口。
-
-首次使用时：
-
-1. 在管理登录页面注册账户。新账户默认没有管理权限。
-2. 在部署主机上为该账户声明初始超级管理员。把下面的 `your_username` 替换为已注册的用户名。
-3. 返回管理登录页面重新登录。
-
-```bash
-docker compose --env-file .env \
-  -f deploy/compose/compose.observability.yaml \
-  --profile operations run --rm admin-role promote --username your_username
+```sh
+docker compose -f compose.yml \
+  -f compose.capacity-es.yml \
+  -f compose.capacity-cache-db.yml up -d
 ```
 
-声明初始超级管理员受数据库中的现有初始化状态约束，不会覆盖已有声明。业务系统和整体系统仍通过用户前端登录；管理员声明命令使用各自的 Compose 文件。
+覆盖文件只用于复测。它们不会改变默认 Compose。可以通过 `CAPACITY_MYSQL_INNODB_BUFFER_POOL_SIZE`、`CAPACITY_REDIS_MAXMEMORY` 和 `CAPACITY_REDIS_MAXMEMORY_POLICY` 覆盖 MySQL 和 Redis 的复测参数。启动后必须检查容器实际配额、MySQL 的 `@@innodb_buffer_pool_size` 和 Redis 的 `INFO memory`。本覆盖配置不包含真实压测数据和验收结论。
 
-独立模式通过 `BACKEND_STANDALONE_OBSERVABILITY=true` 为 `platform` 角色启用鉴权接口，保留管理权限检查，并在进程内限制公开鉴权请求。它不会启动业务消息分发器，也不注册业务阶段查询。管理页面隐藏业务阶段和返回社交入口。其他部署模式保持原有角色划分。
+首次启动按依赖顺序执行：MySQL 健康后运行 `migrate up`；迁移成功且 Elasticsearch 健康后运行 `search-reindex --if-missing`；初始化成功且各自依赖健康后启动三个业务进程；API 就绪后启动 Nginx。已有搜索别名会跳过重建。任一初始化任务失败都会阻止后续业务容器启动。
 
-### 三种模式的 Make 命令
+HTTP 会跳转到 HTTPS。首次部署使用 `.env.example` 的域名示例时，需自行提供覆盖 `localhost` 的证书；公网部署应使用实际域名和有效证书。Nginx 不负责自动申请或续期证书。
 
-| 命令 | 行为 |
-|---|---|
-| `make stack-up MODE=...` | 构建共享镜像，启动所选模式并验证 |
-| `make stack-verify MODE=...` | 验证所选模式的服务状态和访问入口 |
-| `make stack-status MODE=...` | 查看所选模式的容器状态 |
-| `make stack-down MODE=...` | 停止所选模式，保留命名数据卷 |
+直接使用 Docker Compose 时，先在当前终端设置镜像标签。使用额外参数可单独查看状态和日志：
 
-`MODE` 接受 `business`、`observability`、`all`，默认 `all`。项目名和环境文件规则见 [双部署说明](docs/DUAL_DEPLOYMENT.md#命令入口)。若先使用 Docker Compose 命令启动环境，后续改用 Make 命令时必须保持项目名一致。
-
-## 开发、调试和自监控
-
-| 配置 | 用途 | 使用入口 |
-|---|---|---|
-| `dev/compose.local.yaml` | 本地开发依赖 | `make deps`、`make dev` |
-| `dev/compose.local-linux.yaml` | Linux 观测开发覆盖配置 | `make dev-observe` 按平台选择 |
-| `dev/compose.local-darwin.yaml` | macOS 观测开发覆盖配置 | `make dev-observe` 按平台选择 |
-| `dev/compose.debug.yaml` | 向主机开放依赖端口 | 与整体系统配置组合使用 |
-| `dev/compose.tracing.yaml` | 启用验收追踪采集 | 与整体系统配置组合使用 |
-| `selfmonitor/` | 自监控服务和产品覆盖配置 | 见[自监控说明](selfmonitor/README.md) |
-
-覆盖文件不能独立启动。以调试配置为例：
-
-```bash
-docker compose --project-name gopulse --env-file .env \
-  -f deploy/compose/compose.yaml \
-  -f deploy/dev/compose.debug.yaml config --quiet
+```sh
+export GOPULSE_IMAGE_TAG="$(cat VERSION)"
+docker compose ps -a
+docker compose logs --tail=100 api worker indexer
 ```
 
-Compose 默认以第一个配置文件所在目录解析相对路径。追踪配置和 `selfmonitor/product.override.yaml` 的挂载路径按 `deploy/compose/compose.yaml` 所在目录编写。
+探针使用 `/ready` 判断业务进程就绪；Nginx 探针使用 HTTP `/health`。`unhealthy` 不会触发 Docker 自动重启。需要持续监测状态并按故障原因处理，不能用健康检查代替恢复机制。
 
-## 旧路径迁移
+RabbitMQ 在启动宽限期内每 5 秒探测 TCP 端口 `5672`，正常运行时每 60 秒探测一次。计入重试的探测连续失败 3 次后，Docker 将容器标记为 `unhealthy`。
 
-| 旧位置 | 新位置 |
-|---|---|
-| `deploy/compose.yaml` | `deploy/compose/compose.yaml` |
-| `deploy/compose.business.yaml` | `deploy/compose/compose.business.yaml` |
-| `deploy/compose.observability.yaml` | `deploy/compose/compose.observability.yaml` |
-| `deploy/compose.local*.yaml` | `deploy/dev/compose.local*.yaml` |
-| `deploy/compose.debug.yaml` | `deploy/dev/compose.debug.yaml` |
-| `deploy/compose.tracing.yaml` | `deploy/dev/compose.tracing.yaml` |
+Elasticsearch 将 `memswap_limit` 设为与 `mem_limit` 相同的值，以禁用容器 Swap。启动后查询节点的 `mlockall`，预期为 `true`。在 cgroup v2 主机上，再检查 `memory.swap.max` 和 `memory.swap.current`，预期均为 `0`。
 
-仓库内工具已更新路径。仓库外脚本需要同步修改，并继续使用原有项目名和私有环境文件。整体系统和本地开发基础配置保留了原先默认的项目名 `deploy`。
+```sh
+docker compose exec -T elasticsearch curl -fsS \
+  'http://127.0.0.1:9200/_nodes?filter_path=**.mlockall'
+docker compose exec -T elasticsearch cat \
+  /sys/fs/cgroup/memory.swap.max /sys/fs/cgroup/memory.swap.current
+```
 
-如果私有配置中的 `MONITOR_PACKAGE_DIR` 使用相对路径，需要按新的基础文件目录调整，或改用绝对路径。未设置该变量时，默认路径仍指向仓库的 `.run/packages/`。目录迁移不需要删除数据卷。
+## 观察 Redis 缓存命中情况
+
+业务角色始终创建 Redis 客户端，并自动装配正文、互动计数、默认发现页首屏、默认评论首页、作者公开资料和搜索结果缓存。限流启用时使用 Redis 共享配额。互动计数、默认发现页首屏和默认评论首页缓存的有效期为 5 秒，作者公开资料缓存的有效期为 30 秒。旧的 `BACKEND_POST_COUNTS_CACHE_ENABLED`、`BACKEND_DISCOVERY_CACHE_ENABLED`、`BACKEND_COMMENT_PAGE_CACHE_ENABLED` 和 `BACKEND_PUBLIC_PROFILE_CACHE_ENABLED` 环境变量不再生效，可从本地配置中删除。
+
+帖子搜索第 1 至 10 页缓存有序帖子 ID。每条缓存的有效期为 30 秒，命中时不续期。第 11 页起和空搜索结果跳过缓存写入。
+
+在观测区间开始和结束时，各采样一次同一 Redis 实例的 `INFO stats`：
+
+```sh
+docker compose exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli INFO stats' \
+  | awk -F: '/^keyspace_(hits|misses):/ { sub(/\r$/, "", $2); print $1, $2 }'
+```
+
+分别用结束值减去开始值，得到区间内 `keyspace_hits` 和 `keyspace_misses` 的增量。两项增量之和大于 0 时，用命中增量除以该总和，得到区间命中率。Redis 重启或计数器重置后，需重新采样。两项都是实例级计数，也包含帖子正文等其他缓存访问。
+
+## 升级与失败处理
+
+升级会中断服务。执行前先备份数据库并验证恢复方法，记录旧代码版本与镜像标签。迁移 `000021_remove_observability` 会删除旧告警表，降级只能恢复表结构，不能恢复已删除的数据。
+
+在旧配置仍有效时停止业务与初始化容器，并保留依赖和数据卷：
+
+```sh
+export GOPULSE_IMAGE_TAG="$(cat VERSION)"
+docker compose stop web api worker indexer
+docker compose rm -f migrate search-init
+```
+
+然后检出目标代码并更新配置，重新构建和启动：
+
+```sh
+unset GOPULSE_IMAGE_TAG
+make container-build
+make container-config
+make container-up
+```
+
+如果使用自定义镜像标签，构建和启动时需显式传入目标标签。删除已退出的初始化容器可确保本次发布重新执行迁移和索引检查。不要在旧业务进程运行时直接启动新迁移。初始化失败时先查看 `migrate` 或 `search-init` 日志，修复原因后移除这两个任务容器并重试；不要通过跳过初始化来启动业务。
+
+镜像回退不等于数据库回退。迁移完成后是否可以运行旧代码，需要按数据库版本与兼容性判断。需要数据恢复时使用备份恢复及仓库已有的 epoch 恢复流程，不要将 `migrate down` 当作产品数据恢复入口。
+
+## 管理与停止
+
+管理员维护命令复用 API 容器中的二进制。用户需先注册，再执行初始管理员设置：
+
+```sh
+export GOPULSE_IMAGE_TAG="$(cat VERSION)"
+docker compose exec api /app/admin-role bootstrap --user-id <实际用户ID>
+```
+
+更新证书后重新加载 Nginx：
+
+```sh
+docker compose exec web nginx -t
+docker compose exec web nginx -s reload
+```
+
+`make container-logs` 跟随日志；Ctrl+C 只停止日志查看。停止并删除容器和项目网络，同时保留数据卷：
+
+```sh
+make container-down
+```
+
+持久化卷不等于备份。必须另行安排数据库和所需状态的备份与恢复验证。`docker compose down -v` 会删除本项目的数据卷，包含数据库、缓存持久化、消息和搜索索引，不得用于保留数据的停止或升级流程。依赖镜像中的初始化账号变量只对空数据卷生效；更改 `.env` 不会自动修改已有 MySQL 或 RabbitMQ 账号密码。
+
+构建上下文使用各 Dockerfile 相邻的 `Dockerfile.dockerignore` 白名单，仅发送相应源码和 Nginx 模板，排除 `.env`、本地运行目录、前端依赖及构建产物。后端镜像使用非 root 用户；常驻后端及维护容器均使用只读根文件系统，并向标准输出写日志。

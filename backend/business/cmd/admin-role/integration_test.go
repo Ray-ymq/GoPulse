@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/user"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
-	"github.com/Ray-ymq/GoPulse/backend/internal/user"
+	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
 func TestIntegrationPromoteCommandPersistsAdminRoleAndIsIdempotent(t *testing.T) {

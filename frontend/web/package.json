@@ -1,0 +1,29 @@
+{
+  "name": "@gopulse/web",
+  "private": true,
+  "version": "1.0.0-rc.1",
+  "type": "module",
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "check": "vue-tsc --noEmit",
+    "build": "npm run check && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:e2e": "node tests/browser.mjs"
+  },
+  "dependencies": {
+    "vue": "3.5.42",
+    "vue-router": "4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.8",
+    "playwright": "1.62.1",
+    "typescript": "6.0.3",
+    "vite": "8.3.8",
+    "vitest": "4.1.12",
+    "vue-tsc": "3.3.11"
+  }
+}

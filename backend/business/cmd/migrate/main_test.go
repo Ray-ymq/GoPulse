@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"errors"
-	migrationfiles "github.com/Ray-ymq/GoPulse/backend/migrations"
-	"github.com/golang-migrate/migrate/v4/database"
 	"io"
 	"strings"
 	"testing"
+
+	migrationfiles "github.com/Ray-ymq/GoPulse/backend/migrations"
+
+	"github.com/golang-migrate/migrate/v4/database"
 )
 
 func TestRunRejectsInvalidArgumentsBeforeLoadingConfiguration(t *testing.T) {
@@ -37,7 +39,7 @@ func TestValidateDoesNotRequireDatabase(t *testing.T) {
 	if err := run([]string{"validate"}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"binary_target":20`) {
+	if !strings.Contains(output.String(), `"binary_target":23`) {
 		t.Fatal(output.String())
 	}
 }

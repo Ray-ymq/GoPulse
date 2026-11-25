@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-import shlex
 import unittest
 
 from modules import go_manifests, read_modules
@@ -38,39 +36,6 @@ class RepositoryLayoutTests(unittest.TestCase):
                         self.manifests[relative]["Module"]["Path"],
                         replacement["Old"]["Path"],
                     )
-
-    def test_runtime_contract_source_paths_exist(self) -> None:
-        contract = json.loads((ROOT / "deploy/runtime-contracts.json").read_text())
-
-        def check(value):
-            if isinstance(value, list):
-                for item in value:
-                    check(item)
-            elif isinstance(value, dict):
-                for key, item in value.items():
-                    if key in {"entrypoint", "configuration", "catalog", "validator"}:
-                        with self.subTest(field=key, path=item):
-                            self.assertTrue((ROOT / item).exists(), f"源码路径不存在：{item}")
-                    elif key == "module":
-                        self.assertIn(item, self.manifests)
-                    else:
-                        check(item)
-
-        check(contract)
-
-    def test_docker_copy_sources_exist_in_the_checkout(self) -> None:
-        for dockerfile in (ROOT / "deploy/docker").glob("*.Dockerfile"):
-            for line in dockerfile.read_text().splitlines():
-                if not line.lstrip().upper().startswith("COPY "):
-                    continue
-                fields = shlex.split(line)
-                if any(field.startswith("--from=") for field in fields):
-                    continue
-                sources = [field for field in fields[1:-1] if not field.startswith("--")]
-                for source in sources:
-                    with self.subTest(dockerfile=dockerfile.name, source=source):
-                        self.assertTrue((ROOT / source).exists(), f"Docker 构建输入不存在：{source}")
-
 
 if __name__ == "__main__":
     unittest.main()
