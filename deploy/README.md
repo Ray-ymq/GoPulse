@@ -103,7 +103,7 @@ docker compose exec -T elasticsearch cat \
 
 ## 观察 Redis 缓存命中情况
 
-业务 Redis 启用时，互动计数、默认发现页首屏、默认评论首页和作者公开资料缓存自动启用，无需独立开关。前三类缓存的有效期为 5 秒，作者公开资料缓存的有效期为 30 秒。`BACKEND_REDIS_DISABLED=true` 时，业务 Redis 缓存统一停用，读取回到 MySQL。旧的 `BACKEND_POST_COUNTS_CACHE_ENABLED`、`BACKEND_DISCOVERY_CACHE_ENABLED`、`BACKEND_COMMENT_PAGE_CACHE_ENABLED` 和 `BACKEND_PUBLIC_PROFILE_CACHE_ENABLED` 环境变量不再生效，可从本地配置中删除。
+业务角色始终创建 Redis 客户端，并自动装配正文、互动计数、默认发现页首屏、默认评论首页、作者公开资料和搜索结果缓存。限流启用时使用 Redis 共享配额。互动计数、默认发现页首屏和默认评论首页缓存的有效期为 5 秒，作者公开资料缓存的有效期为 30 秒。旧的 `BACKEND_POST_COUNTS_CACHE_ENABLED`、`BACKEND_DISCOVERY_CACHE_ENABLED`、`BACKEND_COMMENT_PAGE_CACHE_ENABLED` 和 `BACKEND_PUBLIC_PROFILE_CACHE_ENABLED` 环境变量不再生效，可从本地配置中删除。
 
 帖子搜索第 1 至 10 页缓存有序帖子 ID。每条缓存的有效期为 30 秒，命中时不续期。第 11 页起和空搜索结果跳过缓存写入。
 

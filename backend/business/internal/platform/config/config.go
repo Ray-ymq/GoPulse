@@ -20,7 +20,6 @@ type Config struct {
 	HTTPMaxConcurrency int
 	MySQL              MySQLConfig
 	Redis              RedisConfig
-	RedisDisabled      bool
 	RabbitMQURL        string
 	Outbox             OutboxConfig
 	Auth               AuthConfig
@@ -97,12 +96,8 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	redisPoolTimeout := time.Duration(0)
 	postDetailTTL := defaultRedisPostDetailTTL
 	operationTimeout := defaultRedisOperationTimeout
-	redisDisabled, err := booleanValue(lookup, "BACKEND_REDIS_DISABLED", false)
-	if err != nil {
-		return Config{}, err
-	}
 	protection := ProtectionConfig{}
-	if serviceRole.RunsBusiness() && !redisDisabled {
+	if serviceRole.RunsBusiness() {
 		redisHost = valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost)
 		if err := validateDependencyHost(runtimeMode, "REDIS_HOST", redisHost); err != nil {
 			return Config{}, err
@@ -326,7 +321,6 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			MaxIdleConns:    mysqlMaxIdleConns,
 			ConnMaxLifetime: mysqlConnMaxLifetime,
 		},
-		RedisDisabled: redisDisabled,
 		Redis: RedisConfig{
 			Host:             redisHost,
 			Port:             redisPort,

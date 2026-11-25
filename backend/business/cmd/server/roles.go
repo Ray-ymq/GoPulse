@@ -187,10 +187,8 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if err := state.ActivateV2(context.Background(), "phase-24-02"); err != nil {
 			return nil, errors.New("activate business event v2")
 		}
-		if !cfg.RedisDisabled {
-			redisClient = redisclient.NewRedis(cfg.Redis)
-			assembly.addResource("redis", redisClient.Close)
-		}
+		redisClient = redisclient.NewRedis(cfg.Redis)
+		assembly.addResource("redis", redisClient.Close)
 		protectionBudget, err = resourcebudget.New(resourcebudget.Config{
 			Auth: cfg.Protection.ResourceAuth, Read: cfg.Protection.ResourceRead, Write: cfg.Protection.ResourceWrite,
 			Database: cfg.Protection.ResourceDatabase, Rebuild: cfg.Protection.ResourceRebuild, Waiter: cfg.Protection.ResourceWaiter,
@@ -211,16 +209,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			if localErr != nil {
 				return nil, errors.New("initialize local rate limiter")
 			}
-			var sharedLimiter ratelimit.Limiter
-			if cfg.RedisDisabled {
-				sharedLimiter, err = ratelimit.NewMemoryLimiter(cfg.Protection.LocalMaxIdentities)
-				if err != nil {
-					return nil, err
-				}
-				logger.Info("无 Redis 业务保护已启用", slog.String("quota_scope", "per_process"), slog.Int("replica_count", cfg.ReplicaCount), slog.Int("max_identities", cfg.Protection.LocalMaxIdentities))
-			} else {
-				sharedLimiter = ratelimit.NewSharedLimiter(redisClient, cfg.Protection.RateLimitOperationTimeout)
-			}
+			sharedLimiter := ratelimit.NewSharedLimiter(redisClient, cfg.Protection.RateLimitOperationTimeout)
 			rateLimitHandler, err = backendhttp.NewRateLimitHandler(sharedLimiter, localLimiter, protectionPolicies(cfg.Redis.PostDetailTTL), trustedProxies)
 			if err != nil {
 				return nil, errors.New("initialize shared rate limiter")
@@ -283,36 +272,31 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		authHandler := authhttp.NewHandler(authService, cookies, logger)
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
-		var cacheScope *readcache.Scope
-		if !cfg.RedisDisabled {
-			cacheScope = readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
-			postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
-			posts.WithCountCache(cacheScope)
-			postBodyCache.WithBatch(cacheScope)
-			posts.WithDiscoveryCache(cacheScope, postBodyCache)
-			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
-				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
-				MaxExecutors:         cfg.Protection.ResourceRebuild,
-				MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
-				MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
-				WaitTimeout:          cfg.Redis.OperationTimeout * 5,
-				TaskTimeout:          cfg.Redis.OperationTimeout * 10,
-				Budget:               protectionBudget,
-			})
-			postService.WithBodyCache(postBodyCache, rebuild)
-			assembly.addResource("post_body_rebuild", func() error {
-				shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				return rebuild.Stop(shutdownContext)
-			})
-		}
+		cacheScope := readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
+		postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
+		posts.WithCountCache(cacheScope)
+		postBodyCache.WithBatch(cacheScope)
+		posts.WithDiscoveryCache(cacheScope, postBodyCache)
+		rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
+			MaxActiveKeys:        cfg.Protection.ResourceRebuild,
+			MaxExecutors:         cfg.Protection.ResourceRebuild,
+			MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
+			MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
+			WaitTimeout:          cfg.Redis.OperationTimeout * 5,
+			TaskTimeout:          cfg.Redis.OperationTimeout * 10,
+			Budget:               protectionBudget,
+		})
+		postService.WithBodyCache(postBodyCache, rebuild)
+		assembly.addResource("post_body_rebuild", func() error {
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return rebuild.Stop(shutdownContext)
+		})
 		postHandler := posthttp.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		commentService := comment.NewService(comments, postService).WithCountInvalidation(posts.InvalidateCounts)
-		if cacheScope != nil {
-			commentService.WithPageCache(cacheScope)
-			posts.WithCommentPageInvalidation(commentService.InvalidatePage)
-		}
+		commentService.WithPageCache(cacheScope)
+		posts.WithCommentPageInvalidation(commentService.InvalidatePage)
 		commentHandler := commenthttp.NewHandler(commentService, logger)
 		likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		likeService := like.NewService(likes, postService).WithCountInvalidation(posts.InvalidateCounts)
@@ -325,16 +309,12 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		notificationHandler := notificationhttp.NewHandler(notificationService, logger)
 		searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
 		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret).WithEpochProvider(state)
-		if redisClient != nil {
-			searchService.WithResultCache(redisClient, cfg.Redis.OperationTimeout)
-		}
+		searchService.WithResultCache(redisClient, cfg.Redis.OperationTimeout)
 
 		routes.AdminUsers = adminhttp.NewHandler(users)
 		routes.Auth = authHandler
 		profiles := user.NewProfileService(users, cfg.Auth.JWTSecret)
-		if cacheScope != nil {
-			profiles.WithPublicProfileCache(cacheScope)
-		}
+		profiles.WithPublicProfileCache(cacheScope)
 		routes.Users = userhttp.NewHandler(profiles, postService, users)
 		routes.Posts = postHandler
 		routes.Comments = commentHandler

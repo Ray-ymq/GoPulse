@@ -458,51 +458,58 @@ func TestDedicatedPoolsCountTowardMySQLBudget(t *testing.T) {
 	}
 }
 
-func TestRedisDisabledDoesNotRequireOrParseRedisConnection(t *testing.T) {
-	env := requiredEnvironment()
-	env["BACKEND_REDIS_DISABLED"] = "true"
-	delete(env, "REDIS_PASSWORD")
-	env["REDIS_PORT"] = "invalid-unused-port"
-	cfg, err := LoadFrom(mapLookup(env))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.RedisDisabled || cfg.Redis.Host != "" || !cfg.Protection.RateLimitEnabled || cfg.Protection.ResourceDatabase != 32 {
-		t.Fatal("无 Redis 配置必须跳过 Redis 连接并保留应用保护")
-	}
-	env["BACKEND_REDIS_DISABLED"] = "invalid"
-	if _, err := LoadFrom(mapLookup(env)); err == nil {
-		t.Fatal("无效布尔值未被拒绝")
+func TestBusinessRedisConfigCannotBeDisabled(t *testing.T) {
+	for _, value := range []string{"true", "false", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			env := requiredEnvironment()
+			env["BACKEND_REDIS_DISABLED"] = value
+			cfg, err := LoadFrom(mapLookup(env))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Redis.Host == "" || cfg.Redis.Password == "" || cfg.Redis.PoolSize == 0 {
+				t.Fatal("业务角色必须加载 Redis 连接配置")
+			}
+			for _, key := range []string{"REDIS_PASSWORD", "REDIS_PORT", "REDIS_POOL_SIZE", "REDIS_OPERATION_TIMEOUT"} {
+				t.Run(key, func(t *testing.T) {
+					invalid := requiredEnvironment()
+					invalid["BACKEND_REDIS_DISABLED"] = value
+					if key == "REDIS_PASSWORD" {
+						delete(invalid, key)
+					} else {
+						invalid[key] = "invalid"
+					}
+					if _, err := LoadFrom(mapLookup(invalid)); err == nil || !strings.Contains(err.Error(), key) {
+						t.Fatalf("必须校验 %s，实际错误为 %v", key, err)
+					}
+				})
+			}
+		})
 	}
 }
 
 func TestRemovedReadCacheSwitchesAreIgnored(t *testing.T) {
-	for _, disabled := range []string{"false", "true"} {
-		t.Run("redis_disabled="+disabled, func(t *testing.T) {
-			env := requiredEnvironment()
-			env["BACKEND_REDIS_DISABLED"] = disabled
-			want, err := LoadFrom(mapLookup(env))
-			if err != nil {
-				t.Fatal(err)
+	env := requiredEnvironment()
+	want, err := LoadFrom(mapLookup(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"false", "true", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			for _, name := range []string{
+				"BACKEND_POST_COUNTS_CACHE_ENABLED",
+				"BACKEND_DISCOVERY_CACHE_ENABLED",
+				"BACKEND_COMMENT_PAGE_CACHE_ENABLED",
+				"BACKEND_PUBLIC_PROFILE_CACHE_ENABLED",
+			} {
+				env[name] = value
 			}
-			for _, value := range []string{"false", "true", "invalid"} {
-				t.Run(value, func(t *testing.T) {
-					for _, name := range []string{
-						"BACKEND_POST_COUNTS_CACHE_ENABLED",
-						"BACKEND_DISCOVERY_CACHE_ENABLED",
-						"BACKEND_COMMENT_PAGE_CACHE_ENABLED",
-						"BACKEND_PUBLIC_PROFILE_CACHE_ENABLED",
-					} {
-						env[name] = value
-					}
-					cfg, err := LoadFrom(mapLookup(env))
-					if err != nil {
-						t.Fatalf("旧读取缓存开关不应导致配置加载失败: %v", err)
-					}
-					if cfg.Redis != want.Redis || cfg.RedisDisabled != want.RedisDisabled {
-						t.Fatal("旧读取缓存开关不应改变 Redis 配置或总开关状态")
-					}
-				})
+			cfg, err := LoadFrom(mapLookup(env))
+			if err != nil {
+				t.Fatalf("旧读取缓存开关不应导致配置加载失败: %v", err)
+			}
+			if cfg.Redis != want.Redis {
+				t.Fatal("旧读取缓存开关不应改变 Redis 配置")
 			}
 		})
 	}
