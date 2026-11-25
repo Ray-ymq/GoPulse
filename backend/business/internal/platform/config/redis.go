@@ -20,16 +20,12 @@ const (
 )
 
 type RedisConfig struct {
-	PostCountsCache    bool
-	DiscoveryCache     bool
-	CommentPageCache   bool
-	PublicProfileCache bool
-	Host               string
-	Port               int
-	Password           string
-	DB                 int
-	PoolSize           int
-	PoolTimeout        time.Duration
-	PostDetailTTL      time.Duration
-	OperationTimeout   time.Duration
+	Host             string
+	Port             int
+	Password         string
+	DB               int
+	PoolSize         int
+	PoolTimeout      time.Duration
+	PostDetailTTL    time.Duration
+	OperationTimeout time.Duration
 }

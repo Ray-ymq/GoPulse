@@ -284,18 +284,12 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
 		var cacheScope *readcache.Scope
-		if redisClient != nil && (cfg.Redis.PostCountsCache || cfg.Redis.DiscoveryCache || cfg.Redis.CommentPageCache || cfg.Redis.PublicProfileCache) {
-			cacheScope = readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
-		}
 		if !cfg.RedisDisabled {
+			cacheScope = readcache.NewScope(redisClient, state, cfg.Redis.OperationTimeout, cfg.Protection.ResourceRebuild, logger)
 			postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
-			if cfg.Redis.PostCountsCache {
-				posts.WithCountCache(cacheScope)
-			}
-			if cfg.Redis.DiscoveryCache {
-				postBodyCache.WithBatch(cacheScope)
-				posts.WithDiscoveryCache(cacheScope, postBodyCache)
-			}
+			posts.WithCountCache(cacheScope)
+			postBodyCache.WithBatch(cacheScope)
+			posts.WithDiscoveryCache(cacheScope, postBodyCache)
 			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
 				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
 				MaxExecutors:         cfg.Protection.ResourceRebuild,
@@ -315,7 +309,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		postHandler := posthttp.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		commentService := comment.NewService(comments, postService).WithCountInvalidation(posts.InvalidateCounts)
-		if cfg.Redis.CommentPageCache {
+		if cacheScope != nil {
 			commentService.WithPageCache(cacheScope)
 			posts.WithCommentPageInvalidation(commentService.InvalidatePage)
 		}
@@ -338,7 +332,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes.AdminUsers = adminhttp.NewHandler(users)
 		routes.Auth = authHandler
 		profiles := user.NewProfileService(users, cfg.Auth.JWTSecret)
-		if cfg.Redis.PublicProfileCache {
+		if cacheScope != nil {
 			profiles.WithPublicProfileCache(cacheScope)
 		}
 		routes.Users = userhttp.NewHandler(profiles, postService, users)
