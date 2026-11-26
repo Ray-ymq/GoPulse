@@ -63,6 +63,12 @@ class WorkflowSafetyTests(unittest.TestCase):
             self.assertGreater(checkout_count, 0, path.name)
             self.assertEqual(disabled_count, checkout_count, path.name)
 
+    def test_commit_job_checks_product_versions(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        section = re.search(r"(?ms)^  commits:\n(.*?)(?=^  \w+:|\Z)", workflow).group(1)
+        self.assertIn("run: make check-versions", section)
+        self.assertNotIn("ci:none", section)
+
     def test_frontend_ci_stays_read_only(self):
         workflow = (ROOT / ".github/workflows/frontend.yml").read_text(encoding="utf-8")
         self.assertRegex(workflow, r"(?m)^permissions:\n  contents: read$")

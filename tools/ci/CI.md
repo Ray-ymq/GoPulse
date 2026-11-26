@@ -126,6 +126,8 @@ make ci-build MODULE=backend/business
 
 采用 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)，项目类型固定在 `.conventional-commits.json`：`build`、`chore`、`ci`、`feat`、`fix`、`perf`、`refactor`、`revert`、`style`、`test`，统一小写。
 
+产品版本只使用 `x.y.z`。每个 commit 按 `.conventional-commits.json` 的 `versioning` 规则递增一次：破坏性标记升级主版本，`feat` 升级次版本，`fix`、`perf`、`revert` 升级补丁版本，其他类型保持版本。各产品版本字段必须随同一提交同步，完整操作见 [版本管理](../../docs/版本管理.md)。
+
 不得单独创建 `docs` 类型的 commit。文档修改必须随对应改动一并提交，标题使用对应改动的类型，例如 `feat`、`fix` 或 `ci`。本地提交钩子和 CI 均拒绝新提交的 `docs:`、`docs(scope):` 及带 `!` 的形式；PR 标题也不得使用 `docs`。校验按标题中的类型判断，不根据文件路径识别纯文档改动。
 
 标题格式为 `type(scope)!: description`，scope 和 `!` 可省略，描述可用中文或英文。破坏性改动使用 `!` 或 `BREAKING CHANGE: 描述`（也支持 `BREAKING-CHANGE`），说明兼容性变化和迁移要求。例如 `fix(frontend): 等待发帖后的路由跳转`、`ci: rebuild module-based checks`。
@@ -181,9 +183,10 @@ PR 标题使用相同的标题格式。正文汇总 PR 的最终改动，使用�
 ### 模板与校验
 
 - [`.gitmessage`](../../.gitmessage) 提供 commit 模板；[PR 模板](../../.github/pull_request_template.md) 在 GitHub 创建 PR 时提供正文结构。模板提示均为注释，需填写实际内容。
-- 运行 `make hooks-install` 安装提交钩子并设置当前仓库的 commit 模板；之后不带 `-m` 的 `git commit` 会打开模板。克隆到新目录后需重新安装。安装不会覆盖已有的其他 hook 路径或 commit 模板。
+- 运行 `make hooks-install` 安装提交钩子并设置当前仓库的 commit 模板；之后不带 `-m` 的 `git commit` 会打开模板。钩子检查提交说明及暂存区产品版本；版本漏更或不一致时拒绝提交。`make commit MESSAGE_FILE=<提交说明文件>` 会先同步暂存区版本，再创建提交；需要更新的版本文件有未暂存修改时，命令会失败，且不会覆盖这些修改。克隆到新目录后需重新安装。安装不会覆盖已有的其他 hook 路径或 commit 模板。
 - `git commit -m` 不会自动带出模板，仍需填写完整正文；本地钩子始终检查新提交的三个部分。
 - `make check-commits MESSAGE_FILE=/path/to/message.txt` 检查一份提交说明；`make check-commits BASE_REF=origin/main` 检查分支新增提交。
+- `make check-version-files` 检查工作区产品版本一致性；`make check-versions BASE_REF=origin/main` 检查分支新增提交的版本递增。CI 的 Conventional Commits 作业同时检查提交规范和产品版本，`ci:none` 不跳过这些检查。
 - CI 检查新增提交；PR 事件还检查 PR 标题和正文，修改 PR 标题或正文会重新触发校验。push 检查 `before` 到 `after` 的全部新增非 merge 提交。新建功能分支或其旧 SHA 不可用时，优先排除 `origin/<默认分支>` 已接受的历史；默认分支不可用时，检查 `after` 可达历史中受提交规范约束的提交。默认分支自身的推送不会用自身的新版本排除提交。缺少章节、空章节、仅含注释、`TODO`、`TBD`、`待补充` 等占位内容会失败。放在代码块或 HTML 注释中的章节示例不能代替实际章节。
 - 校验检查结构和非空内容，不判断测试结果是否真实。模块测试结果仍由对应 CI 任务验证；人工检查和未执行原因由评审核对。
 

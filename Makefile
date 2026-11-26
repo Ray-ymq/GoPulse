@@ -1,4 +1,4 @@
-.PHONY: help list-go-modules list-npm-modules list-ci-labels lint-tool lint lint-all test race check check-all build build-programs ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
+.PHONY: help list-go-modules list-npm-modules list-ci-labels lint-tool lint lint-all test race check check-all build build-programs ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install version-plan version-update check-versions check-version-files commit
 
 # Component dispatch. This list is the single source of truth for module names;
 # each component owns a Makefile that holds its own build and test details.
@@ -39,6 +39,7 @@ REQUIRE_MODULE = $(if $(and $(MODULE),$(filter $(MODULE),$(MODULES))),:,printf '
 help:
 	@printf '%s\n' 'GoPulse 构建与验证入口：' '  make test / race / check / lint / build MODULE=backend/business' '  make ci-check / ci-test / ci-build MODULE=backend/business' '  make build / ci-tools / list-ci-labels' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)'
 	@printf '%s\n' '容器部署入口：' '  make container-build / container-config / container-up / container-down / container-logs' '  GOPULSE_IMAGE_TAG 默认读取 VERSION；部署步骤见 deploy/README.md。'
+	@printf '%s\n' '产品版本入口：' '  make version-plan / version-update / commit MESSAGE_FILE=/path/to/message.txt' '  make check-version-files / check-versions；规则见 docs/版本管理.md。'
 
 list-go-modules:
 	@printf '%s\n' $(GO_MODULES)
@@ -96,6 +97,22 @@ ci-tools:
 
 check-commits:
 	@python3 tools/ci/commits.py $(if $(MESSAGE_FILE),--message-file "$(MESSAGE_FILE)",$(if $(BASE_REF),--base-ref "$(BASE_REF)",))
+
+version-plan version-update:
+	@test -n "$(MESSAGE_FILE)" || { printf '%s\n' '必须指定 MESSAGE_FILE=/path/to/message.txt' >&2; exit 2; }
+	@python3 tools/ci/versions.py $(patsubst version-%,%,$@) --message-file "$(MESSAGE_FILE)" $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
+
+commit:
+	@test -n "$(MESSAGE_FILE)" || { printf '%s\n' '必须指定 MESSAGE_FILE=/path/to/message.txt' >&2; exit 2; }
+	@python3 tools/ci/commits.py --message-file "$(MESSAGE_FILE)"
+	@python3 tools/ci/versions.py update --message-file "$(MESSAGE_FILE)" --staged
+	@git commit -F "$(MESSAGE_FILE)"
+
+check-versions:
+	@python3 tools/ci/versions.py check $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
+
+check-version-files:
+	@python3 tools/ci/versions.py check --current-only
 
 hooks-install:
 	@configured="$$(git config --get core.hooksPath || true)"; \
