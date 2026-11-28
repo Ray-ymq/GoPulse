@@ -68,6 +68,8 @@ jobs:
           persist-credentials: false
       - name: Validate new commits and PR description
         run: make check-commits
+      - name: 检查产品版本一致性和每个新增提交的版本变化
+        run: make check-versions
 
   check:
     name: Check (${{ matrix.module }})

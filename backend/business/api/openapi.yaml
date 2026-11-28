@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoPulse API
-  version: 1.0.0-rc.1
+  version: 1.1.0
   summary: 社交业务 HTTP 接口
   description: 'GoPulse 后端对外暴露的 `/api/v1` 接口，以及用于探针的运行时端点。
 

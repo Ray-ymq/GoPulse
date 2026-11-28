@@ -166,6 +166,13 @@ class RepositoryFixture(unittest.TestCase):
         # Tests must be independent of the developer's global hooks/signing.
         git(self.repo, "config", "core.hooksPath", ".githooks")
         git(self.repo, "config", "commit.gpgSign", "false")
+        self.write("VERSION", "1.0.0\n")
+        self.write("backend/business/api/openapi.yaml", "openapi: 3.1.0\ninfo:\n  version: 1.0.0\n")
+        self.write("frontend/web/package.json", json.dumps({"version": "1.0.0", "dependencies": {"example": "1.0.0"}}, indent=2) + "\n")
+        self.write("frontend/web/package-lock.json", json.dumps({
+            "version": "1.0.0", "packages": {"": {"version": "1.0.0"}, "node_modules/example": {"version": "1.0.0"}},
+        }, indent=2) + "\n")
+        git(self.repo, "add", "--", "VERSION", "backend", "frontend")
         self.legacy = self.commit("Legacy title without a conventional prefix")
         self.write_policy()
         self.policy = read_policy(self.repo)
@@ -179,11 +186,23 @@ class RepositoryFixture(unittest.TestCase):
     def write_policy(self, **overrides: object) -> None:
         data = {
             "types": list(TYPES), "legacy_ref": self.legacy,
-            "body_required_after": self.legacy, "docs_forbidden_after": self.legacy, **overrides,
+            "body_required_after": self.legacy, "docs_forbidden_after": self.legacy,
+            "versioning": {"required_after": self.legacy, "types": {
+                kind: "minor" if kind == "feat" else "patch" if kind in ("fix", "perf", "revert") else "none"
+                for kind in TYPES
+            }}, **overrides,
         }
         self.write(".conventional-commits.json", json.dumps(data))
 
     def commit(self, message: str) -> str:
+        if (self.repo / "tools/ci/versions.py").is_file():
+            path = self.write("fixture-message.txt", message)
+            git_result = subprocess.run(
+                [sys.executable, str(self.repo / "tools/ci/versions.py"), "update", "--message-file", str(path), "--staged"],
+                cwd=self.repo, text=True, capture_output=True,
+            )
+            if git_result.returncode:
+                raise AssertionError(git_result.stderr)
         git(self.repo, "commit", "--quiet", "--allow-empty", "-m", message)
         return git(self.repo, "rev-parse", "HEAD").strip()
 
@@ -475,7 +494,7 @@ class EventTests(RepositoryFixture):
 
 class HookTests(RepositoryFixture):
     def install_hook(self) -> None:
-        for relative in (".githooks/commit-msg", "tools/ci/commits.py"):
+        for relative in (".githooks/commit-msg", "tools/ci/commits.py", "tools/ci/versions.py"):
             target = self.repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, target)
@@ -548,7 +567,7 @@ class HookTests(RepositoryFixture):
 class TemplateInstallationTests(RepositoryFixture):
     def setUp(self) -> None:
         super().setUp()
-        for relative in ("Makefile", ".gitmessage", ".githooks/commit-msg", "tools/ci/commits.py"):
+        for relative in ("Makefile", ".gitmessage", ".githooks/commit-msg", "tools/ci/commits.py", "tools/ci/versions.py"):
             target = self.repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, target)
@@ -581,7 +600,7 @@ class TemplateInstallationTests(RepositoryFixture):
             "import sys\nfrom pathlib import Path\n"
             "message = Path(sys.argv[1])\n"
             "assert '背景：' in message.read_text(encoding='utf-8')\n"
-            f"message.write_text({structured_message('fix: count once')!r}, encoding='utf-8')\n"
+            f"message.write_text({structured_message('ci: update checks')!r}, encoding='utf-8')\n"
         ))
         editor.chmod(0o755)
         directory = self.repo / "nested directory"
